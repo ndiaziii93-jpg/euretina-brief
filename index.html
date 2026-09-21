@@ -126,14 +126,48 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
 .masthead .wrap{padding-top:20px; padding-bottom:4px}
 /* tab bar sticks to the top so you can change day mid-list on a show floor */
 .tabbar{position:sticky; top:0; z-index:30; background:var(--navy)}
-.tabbar .wrap{position:relative}
-.tabbar .wrap::after{content:""; position:absolute; right:0; top:0; bottom:4px; width:34px; pointer-events:none;
+.tabbar .wrap{position:relative; display:flex; align-items:center; gap:10px}
+.tabszone{position:relative; flex:1 1 auto; min-width:0}
+.tabszone::after{content:""; position:absolute; right:0; top:0; bottom:4px; width:34px; pointer-events:none;
   background:linear-gradient(90deg, rgba(10,35,55,0), var(--navy) 78%)}
 /* the Ora brand gradient rule, sampled from the corporate deck */
 .tabbar::after{
   content:""; position:absolute; left:0; right:0; bottom:0; height:4px;
   background:linear-gradient(90deg,#E21E28 0%,#932951 24%,#273C8A 50%,#337F9C 76%,#3DB9AB 100%);
 }
+/* ---------- who else is on ----------
+   Presence was always tracked; it just had nowhere to live but a line of text
+   in the masthead that scrolls away. The faces sit in the sticky tab bar, so
+   they are on screen on every tab, and the ring marks who is mid-edit. */
+.presence{position:relative; flex:none}
+.pfaces{display:flex; align-items:center; background:none; border:0; cursor:pointer;
+  padding:7px 0 11px; margin:0; -webkit-tap-highlight-color:transparent}
+.pfaces:focus-visible{outline:2px solid var(--ora-teal); outline-offset:3px; border-radius:20px}
+.face{width:26px; height:26px; border-radius:50%; display:grid; place-items:center; flex:none;
+  font-family:Archivo, system-ui, sans-serif; font-size:10.5px; font-weight:700; letter-spacing:.02em;
+  color:#fff; background:var(--navy-2); box-shadow:0 0 0 2px var(--navy); margin-left:-2px; position:relative}
+.face:first-child{margin-left:0}
+.face.more{background:var(--navy-2); color:var(--navy-ink-2); font-size:10px}
+.face.editing{z-index:2}
+.face.editing::after{content:""; position:absolute; inset:-3px; border-radius:50%;
+  box-shadow:0 0 0 2px var(--brass); animation:facepulse 1.9s ease-in-out infinite}
+@keyframes facepulse{0%,100%{opacity:1} 50%{opacity:.55}}
+@media (prefers-reduced-motion: reduce){ .face.editing::after{animation:none} }
+.ppop{position:absolute; right:0; top:calc(100% - 3px); z-index:60; width:290px;
+  max-width:calc(100vw - 28px); background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:12px 13px 10px}
+.ppop .face{box-shadow:none; margin-left:0}
+.ppophead{font-family:Archivo, system-ui, sans-serif; font-size:11.5px; font-weight:600;
+  text-transform:uppercase; letter-spacing:.09em; color:var(--ink-3); margin:0 0 9px}
+.prow{display:flex; gap:9px; align-items:flex-start; padding:8px 0; border-top:1px solid var(--line)}
+.prow:first-of-type{border-top:0; padding-top:0}
+.pname{font-size:13.5px; font-weight:600; line-height:1.25}
+.pmeta{font-size:11.5px; color:var(--ink-2); margin-top:2px; line-height:1.35}
+.pmeta .on{color:var(--gold); font-weight:600}
+.youtag{font-size:10px; font-weight:600; color:var(--ink-3); border:1px solid var(--line-2);
+  border-radius:4px; padding:1px 4px; margin-left:5px; vertical-align:1px; letter-spacing:.03em}
+.ppofoot{font-size:11px; color:var(--ink-3); margin:9px 0 0; padding-top:9px; border-top:1px solid var(--line); line-height:1.4}
+@media (max-width:640px){ .face{width:24px; height:24px; font-size:10px} }
 .brandline{display:flex; align-items:center; gap:18px; margin-bottom:16px; flex-wrap:wrap}
 .wordmark{height:34px; width:auto; display:block}
 .oraglyph{height:13px; width:auto; vertical-align:-2px; margin-right:1px}
@@ -773,7 +807,7 @@ body{overflow-x:clip}
 
 @media print{
   body{background:#fff; color:#000; font-size:11pt}
-  .tabs,.chev,.sbtn,.note,.btn,.syncline,.overlay,.statusrow,.legendbar{display:none!important}
+  .tabs,.chev,.sbtn,.note,.btn,.syncline,.presence,.overlay,.statusrow,.legendbar{display:none!important}
   .sessioncard,.mcard,.ccard{box-shadow:none!important; border:1px solid #999; break-inside:avoid}
   .sbody,.mbody,.cbody{display:block!important}
   .mcard{break-after:page}
@@ -795,7 +829,7 @@ body{overflow-x:clip}
     <p class="syncline" id="syncline"><span class="dot"></span> Connecting&hellip;</p>
   </div>
 </header>
-<div class="tabbar"><div class="wrap"><nav class="tabs" id="tabs" role="tablist"></nav></div></div>
+<div class="tabbar"><div class="wrap"><div class="tabszone"><nav class="tabs" id="tabs" role="tablist"></nav></div><div class="presence" id="presence"></div></div></div>
 
 <div id="notice" hidden></div>
 <main><div class="wrap" id="view"></div></main>
@@ -1347,6 +1381,7 @@ let SYNC_MODE = "connecting";
 let SYNC_DETAIL = "";
 let PEERS = {};             /* presence: email -> {name, role, editing} */
 let PRESENCE = null;
+let PRES_OPEN = false;      /* the who-is-on popover */
 let EDITING = null;         /* the meeting id this screen has open in the editor */
 let REMOTE = 0;             /* > 0 while applying someone else's change */
 let RENDER_PENDING = false;
@@ -1517,12 +1552,91 @@ function editorsOn(id){
 function editingSig(peers){
   return Object.keys(peers).sort().map(function(k){ return k + ":" + (peers[k].editing || ""); }).join("|");
 }
+/* ---------- the faces ----------
+   Colours come off the Ora gradient rule under the tab bar, darkened far
+   enough that white initials clear 4.5:1 on every one of them. The same
+   person keeps the same colour on every device, because it is hashed from
+   their email rather than their position in the list. */
+const FACE_INK = ["#C41E23","#932951","#273C8A","#1F6076","#14776C"];
+function faceColor(email){
+  const t = String(email || "");
+  let h = 0;
+  for(let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+  return FACE_INK[h % FACE_INK.length];
+}
+function initials(name, email){
+  const t = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if(!t.length) return String(email || "?").slice(0, 1).toUpperCase();
+  return (t[0][0] + (t.length > 1 ? t[t.length - 1][0] : "")).toUpperCase();
+}
+function faceHTML(p){
+  return '<span class="face' + (p.editing ? " editing" : "") + '" style="background:' +
+    faceColor(p.email) + '">' + esc(initials(p.name, p.email)) + '</span>';
+}
+/* what someone has open, said the way a person would say it */
+function editingLabel(id){
+  const m = state.meetings[id] || state.proposed[id];
+  return (m && has(m.company)) ? m.company : "a meeting";
+}
+function roomList(){
+  const mine = ME ? [{email: ME.email, name: ME.name, role: ME.role, editing: EDITING || null, me: true}] : [];
+  return mine.concat(peerList());
+}
+function presencePop(all){
+  const n = all.length;
+  return '<div class="ppop" id="ppop" role="dialog" aria-label="Who is on the brief">' +
+    '<p class="ppophead">' + n + (n === 1 ? " person" : " people") + ' on the brief</p>' +
+    all.map(function(p){
+      const what = p.editing
+        ? '<span class="on">\u270E Editing ' + esc(editingLabel(p.editing)) + '</span>'
+        : "Reading";
+      return '<div class="prow">' + faceHTML(p) +
+        '<div><div class="pname">' + esc(p.name || p.email) +
+        (p.me ? ' <span class="youtag">You</span>' : "") + '</div>' +
+        '<div class="pmeta">' + (p.role === "editor" ? "Editor" : "View only") +
+        ' \u00b7 ' + what + '</div></div></div>';
+    }).join("") +
+    '<p class="ppofoot">Live. Someone drops off this list about a minute after they close the tab.</p>' +
+  '</div>';
+}
+function renderPresence(){
+  const el = document.getElementById("presence");
+  if(!el) return;
+  if(SNAPSHOT || !ME){ el.innerHTML = ""; PRES_OPEN = false; return; }
+  const all = roomList();
+  const others = all.length - 1;
+  const cap = (typeof window !== "undefined" && window.innerWidth < 560) ? 2 : 4;
+  const shown = all.slice(0, cap);
+  const rest = all.length - shown.length;
+  const busy = all.filter(function(p){ return p.editing; }).length;
+  const label = others
+    ? others + (others === 1 ? " other person is" : " others are") + " on the brief" +
+      (busy ? " \u00b7 " + busy + " mid-edit" : "")
+    : "Only you on the brief right now";
+  el.innerHTML =
+    '<button class="pfaces" id="pfaces" type="button" aria-haspopup="dialog" aria-expanded="' +
+      (PRES_OPEN ? "true" : "false") + '" title="' + esc(label) + '" aria-label="' + esc(label) + '">' +
+      shown.map(faceHTML).join("") +
+      (rest > 0 ? '<span class="face more">+' + rest + '</span>' : "") +
+    '</button>' +
+    (PRES_OPEN ? presencePop(all) : "");
+}
+window.addEventListener("resize", function(){ renderPresence(); });
+document.addEventListener("click", function(e){
+  if(e.target.closest("#pfaces")){ PRES_OPEN = !PRES_OPEN; renderPresence(); return; }
+  if(PRES_OPEN && !e.target.closest("#ppop")){ PRES_OPEN = false; renderPresence(); }
+});
+document.addEventListener("keydown", function(e){
+  if(e.key === "Escape" && PRES_OPEN){ PRES_OPEN = false; renderPresence(); }
+});
+
 function presencePayload(){
   return {email: ME.email, name: ME.name, role: ME.role, editing: EDITING || null};
 }
 function trackEditing(id){
   EDITING = id || null;
   if(PRESENCE) PRESENCE.track(presencePayload()).catch(function(){});
+  renderPresence();
 }
 function updateEditorWarn(){
   const el = document.getElementById("editwarn");
@@ -1549,6 +1663,7 @@ function startPresence(){
     const changed = editingSig(PEERS) !== editingSig(next);
     PEERS = next;
     setSync(SYNC_MODE);
+    renderPresence();
     if(changed){ REMOTE++; try{ render(); } finally { REMOTE--; } updateEditorWarn(); }
   }).subscribe(function(status){
     if(status === "SUBSCRIBED") ch.track(presencePayload()).catch(function(){});
@@ -1689,11 +1804,9 @@ function setSync(mode, detail){
   if(SNAPSHOT) return;
   if(!ME){ el.innerHTML = ""; return; }
   const who = '<b>' + esc(ME.name) + '</b> &middot; ' + (ME.role === "editor" ? "Editor" : "View only");
-  const others = peerList().map(function(p){ return p.name; }).filter(function(n, i, a){ return a.indexOf(n) === i; });
-  const here = others.length ? ' &middot; Also here: ' + others.map(esc).join(", ") : "";
   const out = ' &middot; <button class="linkbtn" data-signout="1">Sign out</button>';
   if(mode === "live")
-    el.innerHTML = '<span class="dot live"></span> Live &middot; ' + who + here + out;
+    el.innerHTML = '<span class="dot live"></span> Live &middot; ' + who + out;
   else if(mode === "catching")
     el.innerHTML = '<span class="dot local"></span> Reconnecting &mdash; saves still go through; other people\'s changes arrive within a minute &middot; ' + who + out;
   else if(mode === "error")
@@ -2017,12 +2130,14 @@ function render(){
   if(!SNAPSHOT && !ME){
     if(tb) tb.hidden = true;
     const sl = document.getElementById("syncline"); if(sl) sl.innerHTML = "";
+    const pz = document.getElementById("presence"); if(pz) pz.innerHTML = "";
     document.getElementById("notice").hidden = true;
     document.getElementById("view").innerHTML = viewLogin();
     return;
   }
   if(tb) tb.hidden = false;
   renderTabs();
+  renderPresence();
   const v = document.getElementById("view");
   const nb = document.getElementById("notice");
   nb.hidden = !state.notice;

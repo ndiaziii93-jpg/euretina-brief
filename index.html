@@ -166,6 +166,8 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
 .pmeta .on{color:var(--gold); font-weight:600}
 .youtag{font-size:10px; font-weight:600; color:var(--ink-3); border:1px solid var(--line-2);
   border-radius:4px; padding:1px 4px; margin-left:5px; vertical-align:1px; letter-spacing:.03em}
+.acctrm{display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin-top:11px; padding-top:10px; border-top:1px solid var(--line)}
 .ppofoot{font-size:11px; color:var(--ink-3); margin:9px 0 0; padding-top:9px; border-top:1px solid var(--line); line-height:1.4}
 @media (max-width:640px){ .face{width:24px; height:24px; font-size:10px} }
 .brandline{display:flex; align-items:center; gap:18px; margin-bottom:16px; flex-wrap:wrap}
@@ -2047,13 +2049,61 @@ async function saveMeta(patch){
   state.meta = Object.assign({}, state.meta, patch); render();
   if(db){ try{ await db.doc("meta/team").set(state.meta); }catch(e){ notice("The roster is owner-only while the schedule is locked."); } }
 }
+/* autoFlag() writes an account row the moment a meeting is saved, so deleting
+   the meeting alone left the company standing on the Targets board with no
+   meeting under it. If the company is not on a published agenda, nothing else
+   meets them, and the row is still exactly what autoFlag wrote — a name and a
+   "booked" flag, nothing a person typed — then it is our row, and it goes too.
+   A note, an origin, an opportunity tick or any other status means a human has
+   been there: that row stays, and the card's own Remove button handles it. */
+function dropStrandedAccount(company){
+  if(!has(company)) return;
+  const id = slug(company);
+  if(CO_BY_ID[id]) return;                    /* on an agenda: derived, never ours to drop */
+  const t = state.targets[id];
+  if(!t) return;
+  const stillMet = allMeetings().some(function(x){ return has(x.company) && slug(x.company) === id; });
+  if(stillMet) return;
+  const live = Object.keys(t).filter(function(k){ return t[k] !== "" && t[k] != null && t[k] !== false; });
+  const ours = t.status === "booked" && live.every(function(k){ return k === "name" || k === "status"; });
+  if(!ours) return;
+  delete state.targets[id];
+  if(db){ try{ db.doc("targets/" + id).delete(); }catch(e){} }
+}
 async function deleteMeeting(id){
   const wasProposed = !!state.proposed[id];
-  if(!db){ delete state.meetings[id]; render(); return; }
+  const company = (state.meetings[id] || state.proposed[id] || {}).company || "";
+  if(!db){
+    delete state.meetings[id]; delete state.proposed[id];
+    delete state.outcomes[id]; delete state.debriefs[id]; delete state.mine[id];
+    dropStrandedAccount(company); render(); return;
+  }
   try{
     await db.doc((wasProposed ? "proposed/" : "meetings/") + id).delete();
-    delete state.meetings[id]; delete state.proposed[id]; render();
+    delete state.meetings[id]; delete state.proposed[id];
+    /* the debrief and the Salesforce draft are keyed by this meeting id and mean
+       nothing without it; left behind they are invisible rows in the table */
+    try{ await db.doc("outcomes/" + id).delete(); }catch(e){}
+    try{ await db.doc("debriefs/" + id).delete(); }catch(e){}
+    delete state.outcomes[id]; delete state.debriefs[id]; delete state.mine[id];
+    dropStrandedAccount(company);
+    render();
   }catch(e){ notice("The schedule is locked, so this could not be deleted."); }
+}
+
+/* a company nobody is meeting and no agenda lists — a typo or a test row */
+async function removeAccount(id){
+  state.confirm = null;
+  const had = state.targets[id];
+  delete state.targets[id];
+  render();
+  if(!db) return;
+  try{ await db.doc("targets/" + id).delete(); }
+  catch(e){
+    if(had) state.targets[id] = had;
+    notice("That account could not be removed \u2014 the board may be owner-only.");
+    render();
+  }
 }
 
 /* owner-only: promote a proposal into the schedule proper */
@@ -3624,6 +3674,22 @@ function offStageBoard(){
   '</div>';
 }
 
+/* Only offered where it is honest: a company on a published agenda is derived
+   from the programme and would come straight back, and one with a meeting on it
+   is rebuilt from that meeting. Neither can be removed from here. */
+function removeAccountRow(a){
+  if(a.forum || a.meetings.length) return "";
+  if(state.confirm && state.confirm.kind === "acct" && state.confirm.id === a.id){
+    return '<div class="acctrm"><span class="confirmrow">Remove ' + esc(a.name) +
+      ' from the board for everyone?' +
+      '<button class="btn sm danger" data-yes="acct|' + esc(a.id) + '">Remove</button>' +
+      '<button class="btn sec sm" data-cancel="1">Cancel</button></span></div>';
+  }
+  return '<div class="acctrm">' +
+    '<button class="btn sec sm" data-delacc="' + esc(a.id) + '">Remove from board</button>' +
+    '<span class="rosterhint" style="margin:0">No meeting attached. This clears its flag and note for everyone.</span>' +
+  '</div>';
+}
 function offCard(a){
   const t = state.targets[a.id] || {};
   const open = !!state.openCos[a.id];
@@ -3660,7 +3726,8 @@ function offCard(a){
       }).join("") +
       (t.status ? '<button class="sbtn" data-status="' + a.id + '|">Clear</button>' : "") +
     '</div>' +
-    '<textarea class="note" data-note="' + a.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>') +
+    '<textarea class="note" data-note="' + a.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>' +
+    removeAccountRow(a)) +
   '</div></div>';
 }
 
@@ -4500,7 +4567,7 @@ function closeEditor(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld]");
+  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc]");
   if(!t) return;
 
   if(t.dataset.accountsheet){ openAccountSheet(t.dataset.accountsheet); return; }
@@ -4555,6 +4622,7 @@ document.addEventListener("click", e => {
   if(t.hasAttribute("data-newpi")){ openPIEditor("new"); return; }
   if(t.dataset.editpi){ openPIEditor(t.dataset.editpi); return; }
   if(t.dataset.delpi){ state.confirm = {kind:"pi", id:t.dataset.delpi}; render(); return; }
+  if(t.dataset.delacc){ state.confirm = {kind:"acct", id:t.dataset.delacc}; render(); return; }
   if(t.dataset.pisave){ submitPI(t.dataset.pisave); return; }
   if(t.dataset.pistatus){
     const parts = t.dataset.pistatus.split("|");
@@ -4569,6 +4637,7 @@ document.addEventListener("click", e => {
   if(t.dataset.yes){
     const parts = t.dataset.yes.split("|");
     if(parts[0] === "pi") deletePI(parts[1]);
+    else if(parts[0] === "acct") removeAccount(parts[1]);
     else if(parts[0] === "person") removePerson(parts[1]);
     else { state.confirm = null; deleteMeeting(parts[1]); }
     return;

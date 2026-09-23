@@ -2766,6 +2766,20 @@ function csvRows(text){
   if(cell.length || row.length){ row.push(cell); out.push(row); }
   return out.filter(function(r){ return r.some(function(x){ return String(x).trim(); }); });
 }
+/* Salesforce splits a time across two columns — "8:00" under a header named
+   for the timezone, then a bare AM/PM under a blank one. Both shapes are read,
+   and a single "8:00 AM" cell works too. */
+function sfTime(t, ap){
+  const raw = String(t || "").trim() + " " + String(ap || "").trim();
+  const m = raw.match(/^(\d{1,2})[:.](\d{2})\s*([AaPp])?[Mm]?/);
+  if(!m) return "";
+  let h = parseInt(m[1], 10);
+  const mi = m[2], half = (m[3] || "").toLowerCase();
+  if(half === "p" && h < 12) h += 12;
+  if(half === "a" && h === 12) h = 0;
+  if(h > 23 || +mi > 59) return "";
+  return (h < 10 ? "0" : "") + h + ":" + mi;
+}
 const sfClean = function(v){ return String(v == null ? "" : v).replace(/ /g, " ").replace(/\s+/g, " ").trim(); };
 
 /* strip the legal tail so "Novaliq" finds "Novaliq GmbH" */
@@ -2818,13 +2832,23 @@ function sfParse(text){
   const cSub = col("subject"), cCo = col("company / account"), cAcc = col("account id"),
         cDate = col("date"), cOra = col("ora attendees"), cName = col("name"), cTitle = col("title");
   if(cCo < 0 || cDate < 0) return [];
+  /* the time column is named for the city, or just "time"; the AM/PM that
+     follows it sits under a blank header */
+  let cTime = -1;
+  for(let i = 0; i < head.length; i++){
+    if(/^(vienna|time|start|start time|local)$/i.test(head[i])){ cTime = i; break; }
+  }
+  const cHalf = (cTime > -1 && cTime + 1 < head.length && !head[cTime + 1]) ? cTime + 1 : -1;
   const group = {}, order = [];
   rows.slice(1).forEach(function(r){
     const co = sfClean(r[cCo]), date = sfClean(r[cDate]);
     if(!co || !date) return;                   /* the export's footer rows */
-    const key = slug(co) + "|" + date;
+    const time = cTime > -1 ? sfTime(r[cTime], cHalf > -1 ? r[cHalf] : "") : "";
+    /* the time is part of the identity: the same company at 08:00 and again at
+       08:45 is two meetings, not one meeting with two people in it */
+    const key = slug(co) + "|" + date + "|" + time;
     if(!group[key]){
-      group[key] = {company: co, date: date, subject: sfClean(r[cSub]),
+      group[key] = {company: co, date: date, time: time, subject: sfClean(r[cSub]),
                     account: cAcc > -1 ? sfClean(r[cAcc]) : "",
                     ora: cOra > -1 ? sfClean(r[cOra]) : "", people: []};
       order.push(key);
@@ -2842,9 +2866,11 @@ function sfParse(text){
     const hit = matchCompany(g.company);
     const day = sfDay(g.date, g.subject, hit.name);
     const dup = allMeetings().filter(function(m){
-      return has(m.company) && slug(m.company) === slug(hit.name);
+      return has(m.company) && slug(m.company) === slug(hit.name) &&
+             (!g.time || !has(m.time) || m.time === g.time);
     })[0];
-    return {key: k, raw: g.company, company: hit.name, how: hit.how, date: g.date, day: day,
+    return {key: k, raw: g.company, company: hit.name, how: hit.how, date: g.date,
+            time: g.time || "", day: day,
             people: g.people, ora: g.ora, subject: g.subject, account: g.account,
             dup: dup ? dup.id : "", take: !dup};
   });
@@ -2874,15 +2900,17 @@ function importPanel(){
               return '<option value="' + d.key + '"' + (r.day === d.key ? " selected" : "") + '>' +
                 esc(d.label) + '</option>';
             }).join("") + '</select>' +
-            '<span class="impnote">' + esc(r.date) + '</span></td>' +
+            '<span class="impnote">' + esc(r.date) +
+              (r.time ? ' \u00b7 ' + esc(t12(r.time)) : ' \u00b7 no time given') + '</span></td>' +
           '<td>' + r.people.map(function(p){
               return '<span class="impwho">' + esc(p.name) + (p.title ? ' — ' + esc(p.title) : '') + '</span>';
             }).join("") +
             (r.ora ? '<span class="impnote">Ora: ' + esc(r.ora) + '</span>' : '') + '</td>' +
         '</tr>';
       }).join("") + '</tbody></table>' +
-      '<p class="hint" style="margin-top:9px">The export carries no times, so these arrive without one and show as ' +
-        '<b>no time</b> until you set it. Nothing is overwritten — a company already in the brief is unticked by default.</p>';
+      '<p class="hint" style="margin-top:9px">Rows without a time arrive as <b>no time</b> and sit at the top of ' +
+        'their day until you set one. Nothing is overwritten — a company already in the brief at the same ' +
+        'slot is unticked by default.</p>';
 
   document.getElementById("editor").innerHTML =
   '<div class="sheet" role="dialog" aria-modal="true" aria-label="Import meetings">' +
@@ -2910,7 +2938,8 @@ async function runImport(){
     const r = take[i];
     const m = {
       id: "m" + Date.now().toString(36) + i.toString(36),
-      day: r.day, time: "", duration: "30 min",
+      day: r.day, time: r.time || "",
+      duration: /dinner|lunch|breakfast/i.test(r.subject) ? "2 hrs" : "30 min",
       company: r.company,
       format: /dinner|lunch|breakfast/i.test(r.subject) ? "meal" : "formal",
       confirmed: true, priority: "standard",
@@ -2924,7 +2953,9 @@ async function runImport(){
   }
   state.imp = null;
   closeEditor();
-  notice(n + (n === 1 ? " meeting" : " meetings") + " added from the export. They have no time on them yet.");
+  const untimed = take.filter(function(r){ return !r.time; }).length;
+  notice(n + (n === 1 ? " meeting" : " meetings") + " added from the export" +
+    (untimed ? ", " + untimed + " still without a time" : "") + ".");
 }
 
 function viewExec(){

@@ -248,6 +248,12 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
   text-transform:uppercase; letter-spacing:.07em; color:var(--ink-3)}
 .sbtn.wed[aria-pressed="true"]{background:var(--teal-fill); color:var(--teal); border-color:var(--teal-line); font-weight:600}
 .wedhint{font-size:11.5px; color:var(--ink-2)}
+.impdrop{display:flex; align-items:center; gap:11px; flex-wrap:wrap;
+  padding:15px; border:1px dashed var(--line-2); border-radius:10px; background:var(--surface-2)}
+.impdrop input[type=file]{position:absolute; width:1px; height:1px; opacity:0; pointer-events:none}
+.impdrop label.btn{cursor:pointer; margin:0}
+.impdrop input[type=file]:focus-visible + label.btn{outline:2px solid var(--gold); outline-offset:2px}
+.impor{margin:12px 0 4px; text-align:center}
 .imptable{width:100%; border-collapse:collapse; font-size:12.5px}
 .imptable th{text-align:left; font-family:Archivo, system-ui, sans-serif; font-size:10.5px;
   text-transform:uppercase; letter-spacing:.07em; color:var(--ink-3); padding:0 8px 6px 0; font-weight:600}
@@ -1227,6 +1233,40 @@ document.addEventListener("change", function(e){
   } else if(t.hasAttribute && t.hasAttribute("data-impday")){
     const r = state.imp.rows[+t.getAttribute("data-impday")];
     if(r) r.day = t.value;
+  }
+});
+/* Salesforce writes Windows-1252. Read as UTF-8 first and, if that produces
+   replacement characters, read it again as 1252 rather than letting a mangled
+   name be saved for good. */
+function impReadFile(file){
+  if(!file) return;
+  const nm = document.getElementById("impfilename");
+  if(nm) nm.textContent = file.name;
+  const take = function(text){
+    const rows = sfParse(text);
+    if(!rows.length){
+      formError("That file could not be read \u2014 it needs the export's header row, with Company / Account and Date.");
+      return;
+    }
+    state.imp = state.imp || {text:"", rows:[], done:0};
+    state.imp.rows = rows;
+    importPanel();
+  };
+  const r1 = new FileReader();
+  r1.onload = function(){
+    const t = String(r1.result || "");
+    if(t.indexOf("\ufffd") === -1) return take(t);
+    const r2 = new FileReader();
+    r2.onload = function(){ take(String(r2.result || "")); };
+    r2.onerror = function(){ take(t); };
+    r2.readAsText(file, "windows-1252");
+  };
+  r1.onerror = function(){ formError("That file could not be opened."); };
+  r1.readAsText(file, "utf-8");
+}
+document.addEventListener("change", function(e){
+  if(e.target && e.target.id === "impfile"){
+    impReadFile(e.target.files && e.target.files[0]);
   }
 });
 document.addEventListener("input", function(e){
@@ -2857,7 +2897,19 @@ function findBar(){
    One row per contact in the export, so two people at one meeting arrive as
    two rows; they are grouped back into one meeting per company per date, and
    an identical row repeated is dropped. */
-function csvRows(text){
+/* Pasting out of a spreadsheet gives tabs, not commas, and a European export
+   can give semicolons. Take the delimiter from whichever wins on the header
+   row rather than assuming the file is comma separated. */
+function csvDelim(text){
+  const head = String(text || "").split(/\r?\n/)[0] || "";
+  const n = function(ch){ return head.split(ch).length - 1; };
+  const tab = n("\t"), semi = n(";"), comma = n(",");
+  if(tab >= comma && tab >= semi && tab > 0) return "\t";
+  if(semi > comma && semi > 0) return ";";
+  return ",";
+}
+function csvRows(text, delim){
+  const d = delim || csvDelim(text);
   const out = []; let row = [], cell = "", q = false;
   const t = String(text || "").replace(/\r\n?/g, "\n");
   for(let i = 0; i < t.length; i++){
@@ -2866,7 +2918,7 @@ function csvRows(text){
       if(c === '"'){ if(t[i+1] === '"'){ cell += '"'; i++; } else q = false; }
       else cell += c;
     } else if(c === '"') q = true;
-    else if(c === ","){ row.push(cell); cell = ""; }
+    else if(c === d){ row.push(cell); cell = ""; }
     else if(c === "\n"){ row.push(cell); out.push(row); row = []; cell = ""; }
     else cell += c;
   }
@@ -2946,6 +2998,12 @@ function sfParse(text){
     if(/^(vienna|time|start|start time|local)$/i.test(head[i])){ cTime = i; break; }
   }
   const cHalf = (cTime > -1 && cTime + 1 < head.length && !head[cTime + 1]) ? cTime + 1 : -1;
+  /* an optional column saying which 30 September programme this was, so the
+     answer can travel in the file instead of being clicked in afterwards */
+  let cWed = -1;
+  for(let i = 0; i < head.length; i++){
+    if(/^(wednesday|programme|program|forum\/eis)$/i.test(head[i])){ cWed = i; break; }
+  }
   const group = {}, order = [];
   rows.slice(1).forEach(function(r){
     const co = sfClean(r[cCo]), date = sfClean(r[cDate]);
@@ -2955,7 +3013,9 @@ function sfParse(text){
        08:45 is two meetings, not one meeting with two people in it */
     const key = slug(co) + "|" + date + "|" + time;
     if(!group[key]){
-      group[key] = {company: co, date: date, time: time, subject: sfClean(r[cSub]),
+      group[key] = {company: co, date: date, time: time,
+                    wedCol: cWed > -1 ? sfClean(r[cWed]).toLowerCase() : "",
+                    subject: sfClean(r[cSub]),
                     account: cAcc > -1 ? sfClean(r[cAcc]) : "",
                     ora: cOra > -1 ? sfClean(r[cOra]) : "", people: []};
       order.push(key);
@@ -2971,7 +3031,8 @@ function sfParse(text){
   return order.map(function(k){
     const g = group[k];
     const hit = matchCompany(g.company);
-    const day = sfDay(g.date, g.subject, hit.name);
+    let day = sfDay(g.date, g.subject, hit.name);
+    if(WED_KEYS.indexOf(g.wedCol) > -1) day = WED_TAB[g.wedCol] || day;
     const dup = allMeetings().filter(function(m){
       return has(m.company) && slug(m.company) === slug(hit.name) &&
              (!g.time || !has(m.time) || m.time === g.time);
@@ -2981,7 +3042,8 @@ function sfParse(text){
             /* a 30 September row gets the Forum/EIS toggle rather than one day,
                because a company can have been at both */
             isWed: /^9\/30\//.test(String(g.date).trim()),
-            wed: /^9\/30\//.test(String(g.date).trim()) ? (day || "") : "",
+            wed: /^9\/30\//.test(String(g.date).trim())
+                   ? (WED_KEYS.indexOf(g.wedCol) > -1 ? g.wedCol : (day || "")) : "",
             people: g.people, ora: g.ora, subject: g.subject, account: g.account,
             dup: dup ? dup.id : "", take: !dup};
   });
@@ -2994,10 +3056,16 @@ function importPanel(){
   const st = sfImportRows();
   const rows = st.rows || [];
   const body = !rows.length
-    ? '<label class="f">Paste the Salesforce export' +
+    ? '<div class="impdrop">' +
+        '<input type="file" id="impfile" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values">' +
+        '<label class="btn" for="impfile">Choose the export file\u2026</label>' +
+        '<span class="hint" id="impfilename">CSV or TSV, straight from Salesforce.</span>' +
+      '</div>' +
+      '<p class="hint impor">or paste it below</p>' +
+      '<label class="f">Paste the Salesforce export' +
         '<textarea id="impcsv" style="min-height:190px;font-family:\'IBM Plex Mono\',monospace;font-size:12px" ' +
         'placeholder="Subject,Company / Account,Account ID,Date,Ora Attendees,Sponsor Attendees,Name,Title,Related Campaign&#10;…"></textarea>' +
-        '<span class="hint">Headers included. One row per contact is fine — rows are grouped into one meeting per company per date.</span></label>'
+        '<span class="hint">Headers included. Commas, tabs or semicolons all read. One row per contact is fine — rows are grouped into one meeting per company per slot.</span></label>'
     : '<table class="imptable"><thead><tr><th></th><th>Company</th><th>Day</th><th>Who</th></tr></thead><tbody>' +
       rows.map(function(r, i){
         return '<tr' + (r.dup ? ' class="dupe"' : '') + '>' +

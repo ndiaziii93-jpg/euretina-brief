@@ -2150,12 +2150,20 @@ function dismissSplash(){
      several times longer and starts to feel like waiting. The wide screen is
      held for less, and the phone keeps the numbers it already had. */
   const wide = !!(window.matchMedia && window.matchMedia("(min-width: 820px)").matches);
+  /* The laptop holds for a fixed beat rather than a multiple of the load. The
+     phone is a warm home-screen launch and lands on its floor almost every
+     time, so scaling with the load only ever made the laptop the odd one out;
+     pinning it to that same floor is what makes the two match. It can still
+     run over on a cold fetch, because the mark cannot leave before the page
+     it is flying into exists. */
   const SPLASH = wide
-    ? {mult: 2.2, min: 760,  max: 2000}      /* laptop: a beat, then get on with it */
+    ? {fixed: 1094}                          /* laptop: the phone's beat, not the load's */
     : {mult: 3.5, min: 1094, max: 3500};     /* phone: unchanged */
   const go = function(){
     const elapsed = (window.performance && performance.now) ? performance.now() : 600;
-    const centred = Math.min(Math.max(elapsed * SPLASH.mult, SPLASH.min), SPLASH.max);
+    const centred = SPLASH.fixed
+      ? SPLASH.fixed
+      : Math.min(Math.max(elapsed * SPLASH.mult, SPLASH.min), SPLASH.max);
     setTimeout(function(){
       requestAnimationFrame(function(){ requestAnimationFrame(fly); });
     }, Math.max(0, centred - elapsed));

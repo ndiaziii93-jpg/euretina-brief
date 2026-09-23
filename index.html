@@ -21,7 +21,7 @@ html.booted{background:none}
 #splashbg{position:absolute;inset:0;background:#0A2337;transition:opacity .45s ease}
 #splashmark{position:relative;width:min(56vw,280px);height:auto;display:block;
   transform-origin:top left;will-change:transform;
-  transition:transform .775s cubic-bezier(.62,.04,.26,1)}
+  transition:transform .97s cubic-bezier(.62,.04,.26,1)}
 #splash.fade #splashbg{opacity:0}
 #splash.gone{display:none}
 @media (prefers-reduced-motion: reduce){#splashmark{transition:none}}
@@ -2079,10 +2079,21 @@ function dismissSplash(){
     setTimeout(function(){
       document.documentElement.classList.add("booted");
       sp.classList.add("fade");
-    }, 540);
-    setTimeout(done, 1090);
+    }, 675);
+    setTimeout(done, 1363);
   };
-  const go = function(){ requestAnimationFrame(function(){ requestAnimationFrame(fly); }); };
+  /* Hold the mark centred for as long again as it took to get here, so the
+     centred beat is double whatever the device and network actually did
+     rather than a fixed guess that is too long on wifi and too short on 4G.
+     Floored so a cached load still gets a beat, capped so a bad one does not
+     sit there. */
+  const go = function(){
+    const elapsed = (window.performance && performance.now) ? performance.now() : 500;
+    const hold = Math.min(Math.max(elapsed, 320), 1800);
+    setTimeout(function(){
+      requestAnimationFrame(function(){ requestAnimationFrame(fly); });
+    }, hold);
+  };
   if(document.fonts && document.fonts.ready && document.fonts.ready.then){
     let waited = false;
     const once = function(){ if(!waited){ waited = true; go(); } };
@@ -2092,7 +2103,7 @@ function dismissSplash(){
 }
 /* whatever happens to the network, the splash comes down */
 window.addEventListener("load", function(){ setTimeout(dismissSplash, 400); });
-setTimeout(dismissSplash, 6000);
+setTimeout(dismissSplash, 8000);
 
 async function boot(){
   if(SNAPSHOT){ READONLY = true; BOOTING = false; connect(); dismissSplash(); return; }

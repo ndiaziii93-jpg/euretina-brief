@@ -209,6 +209,13 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
 }
 @media print{ .mapbtn,.cart{display:none} .headnote{animation:none} }
 /* the floor reuses the Targets card wholesale; only the page furniture is new */
+.impwed{display:flex; gap:4px; flex-wrap:wrap; margin-bottom:3px}
+.wedrow{display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  margin-top:10px; padding-top:9px; border-top:1px solid var(--line)}
+.wedlab{font-family:Archivo, system-ui, sans-serif; font-size:10.5px; font-weight:600;
+  text-transform:uppercase; letter-spacing:.07em; color:var(--ink-3)}
+.sbtn.wed[aria-pressed="true"]{background:var(--teal-fill); color:var(--teal); border-color:var(--teal-line); font-weight:600}
+.wedhint{font-size:11.5px; color:var(--ink-2)}
 .imptable{width:100%; border-collapse:collapse; font-size:12.5px}
 .imptable th{text-align:left; font-family:Archivo, system-ui, sans-serif; font-size:10.5px;
   text-transform:uppercase; letter-spacing:.07em; color:var(--ink-3); padding:0 8px 6px 0; font-weight:600}
@@ -2871,6 +2878,9 @@ function sfParse(text){
     })[0];
     return {key: k, raw: g.company, company: hit.name, how: hit.how, date: g.date,
             time: g.time || "", day: day,
+            /* a 30 September row gets the Forum/EIS toggle rather than one day,
+               because a company can have been at both */
+            wed: /^9\/30\//.test(String(g.date).trim()) ? (day ? [day] : []) : null,
             people: g.people, ora: g.ora, subject: g.subject, account: g.account,
             dup: dup ? dup.id : "", take: !dup};
   });
@@ -2894,12 +2904,26 @@ function importPanel(){
           '<td><b>' + esc(r.company) + '</b>' +
             (slug(r.company) !== slug(r.raw) ? '<span class="impnote">export said "' + esc(r.raw) + '"</span>' : '') +
             '<span class="impnote">' + esc(r.how) + (r.dup ? ' · already in the brief' : '') + '</span></td>' +
-          '<td><select data-impday="' + i + '">' +
+          '<td>' +
+            (r.wed
+              ? '<span class="impwed">' +
+                  WED_PROG.map(function(o){
+                    const on = r.wed.indexOf(o.k) > -1;
+                    return '<button class="sbtn wed" data-impwed="' + i + '|' + o.k +
+                      '" aria-pressed="' + on + '">' + o.label + '</button>';
+                  }).join("") +
+                '</span><span class="impnote">' +
+                  (r.wed.length > 1
+                    ? "At both, meeting sits on " +
+                      esc((DAYS.filter(function(d){ return d.key === r.day; })[0] || {}).label || "?")
+                    : (r.wed.length ? esc(wedLabel(r.wed)) : "Pick Forum, EIS or both")) +
+                '</span>'
+              : '<select data-impday="' + i + '">' +
             '<option value=""' + (r.day ? "" : " selected") + '>— pick a day</option>' +
             DAYS.map(function(d){
               return '<option value="' + d.key + '"' + (r.day === d.key ? " selected" : "") + '>' +
                 esc(d.label) + '</option>';
-            }).join("") + '</select>' +
+            }).join("") + '</select>') +
             '<span class="impnote">' + esc(r.date) +
               (r.time ? ' \u00b7 ' + esc(t12(r.time)) : ' \u00b7 no time given') + '</span></td>' +
           '<td>' + r.people.map(function(p){
@@ -2930,6 +2954,8 @@ function importPanel(){
 async function runImport(){
   const st = sfImportRows();
   const take = (st.rows || []).filter(function(r){ return r.take; });
+  const noWed = take.filter(function(r){ return r.wed && !r.wed.length; });
+  if(noWed.length) return formError(noWed[0].company + " is on 30 September. Tick Forum, EIS or both.");
   const noDay = take.filter(function(r){ return !r.day; });
   if(!take.length) return formError("Tick at least one meeting.");
   if(noDay.length) return formError(noDay[0].company + " has no day set — 30 September is two tabs, so it has to be picked.");
@@ -2949,6 +2975,11 @@ async function runImport(){
       background: r.account ? "Salesforce account " + r.account : ""
     };
     await saveMeeting(m, true);
+    if(r.wed && r.wed.length){
+      const wid = slug(r.company);
+      const wt = state.targets[wid] || {};
+      await saveTarget(wid, {wed: r.wed, name: wt.name || r.company});
+    }
     n++;
   }
   state.imp = null;
@@ -2956,6 +2987,22 @@ async function runImport(){
   const untimed = take.filter(function(r){ return !r.time; }).length;
   notice(n + (n === 1 ? " meeting" : " meetings") + " added from the export" +
     (untimed ? ", " + untimed + " still without a time" : "") + ".");
+}
+
+/* who we saw on the Wednesday, before the congress proper opened */
+function wedBoard(){
+  const c = wedCounts();
+  if(!c.marked) return "";
+  return '<div class="sec-head" style="margin-bottom:9px"><div>' +
+    '<h2 style="font-size:17px">Before EURETINA opened</h2>' +
+    '<p>Wednesday 30 September ran two programmes at once. Marked on the company card \u2014 a company at ' +
+    'both counts once, under Both.</p></div></div>' +
+    '<div class="statstrip">' +
+      '<div class="stat"><div class="v">' + c.forum + '</div><div class="k">Forum only</div></div>' +
+      '<div class="stat"><div class="v">' + c.eis + '</div><div class="k">EIS only</div></div>' +
+      '<div class="stat accent"><div class="v">' + c.both + '</div><div class="k">Both</div></div>' +
+      '<div class="stat"><div class="v">' + c.marked + '</div><div class="k">Companies marked</div></div>' +
+    '</div>';
 }
 
 function viewExec(){
@@ -3087,7 +3134,7 @@ function viewExec(){
     '<p>What we found, how the week was made up, and where it stands. Every fraction is out of the same <b>' + total +
     '</b> meetings, so no two figures on this page can disagree. Tap either opportunity tile to see the accounts behind the number.</p>' +
   '</div><div style="display:flex;gap:7px;flex-wrap:wrap">' + eventTags() + '</div></div>' +
-  findBar() + hero + second + missList + shape +
+  findBar() + hero + second + missList + shape + wedBoard() +
   (piStats().all
     ? '<div class="sec-head" style="margin-bottom:9px"><div><h2 style="font-size:17px">Investigators</h2>' +
       '<p>Reach into the people who run the studies, tracked separately from the companies.</p></div></div>' +
@@ -4148,6 +4195,52 @@ function forumMeetingRow(m){
 }
 
 /* ---------- company card ---------- */
+/* ---------- Wednesday, before the congress ----------
+   Two programmes run on 30 September and a company can be at either or both.
+   That is a property of the company, not of one meeting: a meeting sits on the
+   day it happened, but "who did we see before EURETINA opened" is the count
+   people actually ask for afterwards. Kept as a list so both can be true. */
+const WED_PROG = [{k:"forum", label:"Forum"}, {k:"eis", label:"EIS"}];
+function wedOf(id){
+  const w = (state.targets[id] || {}).wed;
+  return Array.isArray(w) ? w.filter(function(x){ return x === "forum" || x === "eis"; }) : [];
+}
+function wedLabel(w){
+  if(!w.length) return "Not marked";
+  if(w.length > 1) return "At both";
+  return w[0] === "forum" ? "Forum only" : "EIS only";
+}
+function toggleWed(id, k, name){
+  const cur = wedOf(id);
+  const next = cur.indexOf(k) > -1 ? cur.filter(function(x){ return x !== k; }) : cur.concat([k]);
+  const t = state.targets[id] || {};
+  saveTarget(id, {wed: next, name: t.name || name || id});
+}
+function wedRow(id, name){
+  const w = wedOf(id);
+  return RW('<div class="wedrow">' +
+    '<span class="wedlab">Wed 30 Sept</span>' +
+    WED_PROG.map(function(o){
+      const on = w.indexOf(o.k) > -1;
+      return '<button class="sbtn wed" data-wed="' + esc(id) + '|' + o.k + '" aria-pressed="' + on + '">' +
+        o.label + '</button>';
+    }).join("") +
+    '<span class="wedhint">' + esc(wedLabel(w)) + '</span>' +
+  '</div>');
+}
+/* the roll-up the tracking question wants: forum only, EIS only, both */
+function wedCounts(){
+  let forum = 0, eis = 0, both = 0;
+  Object.keys(state.targets).forEach(function(k){
+    const w = wedOf(k);
+    if(!w.length) return;
+    if(w.length > 1) both++;
+    else if(w[0] === "forum") forum++;
+    else eis++;
+  });
+  return {forum: forum, eis: eis, both: both, marked: forum + eis + both};
+}
+
 /* The stand, on whichever card the company appears — Targets and the floor
    are the same card now, so the booth travels with it. */
 function boothChip(name){
@@ -4231,7 +4324,7 @@ function companyCard(c){
         '<button class="tog" data-acc="' + c.id + '|newEngagement|' + esc(c.name) + '" aria-pressed="' + (!!t.newEngagement) + '">New engagement</button>' +
       '</div>' +
       (t.activeOpp ? '<input class="note" style="min-height:0" data-oppnote="' + c.id + '" value="' + esc(t.oppNote||"") + '" placeholder="Which opportunity is open">' : "") +
-      '<textarea class="note" data-note="' + c.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>') +
+      wedRow(c.id, c.name) + '<textarea class="note" data-note="' + c.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>') +
   '</div>';
 
   return '<div class="' + cls + ' open">' + head + body + '</div>';
@@ -4343,6 +4436,7 @@ function offCard(a){
       (t.status ? '<button class="sbtn" data-status="' + a.id + '|">Clear</button>' : "") +
     '</div>' +
     '<textarea class="note" data-note="' + a.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>' +
+    wedRow(a.id, a.name) +
     (a.meetings.length ? "" :
       '<div class="acctrm"><button class="btn sec sm" data-exmeet="' + esc(a.id) + '">+ Add meeting</button>' +
       '<span class="rosterhint" style="margin:0">Opens the meeting form with ' + esc(a.name) +
@@ -5202,7 +5296,7 @@ function closeEditor(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback]");
+  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
   if(!t) return;
 
   if(t.dataset.accountsheet){ openAccountSheet(t.dataset.accountsheet); return; }
@@ -5415,6 +5509,23 @@ document.addEventListener("click", e => {
     const nm = EX_LABEL[k] || (state.targets[k] || {}).name ||
                ((CO_BY_ID[k] || {}).name) || k;
     openEditor(null, (DAYS[2] || DAYS[0]).key, nm);
+    return;
+  }
+  if(t.dataset.wed){
+    const bits = t.dataset.wed.split("|");
+    const nm = (state.targets[bits[0]] || {}).name || (CO_BY_ID[bits[0]] || {}).name || bits[0];
+    toggleWed(bits[0], bits[1], nm);
+    return;
+  }
+  if(t.dataset.impwed && state.imp && state.imp.rows){
+    const bits = t.dataset.impwed.split("|");
+    const r = state.imp.rows[+bits[0]];
+    if(r){
+      const cur = r.wed || [];
+      r.wed = cur.indexOf(bits[1]) > -1 ? cur.filter(function(x){ return x !== bits[1]; }) : cur.concat([bits[1]]);
+      r.day = r.wed[0] || "";
+      importPanel();
+    }
     return;
   }
   if(t.hasAttribute("data-import")){ state.imp = {text:"", rows:[], done:0}; importPanel(); return; }

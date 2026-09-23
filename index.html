@@ -208,6 +208,27 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
   .vaddr{font-size:12px}
 }
 @media print{ .mapbtn,.cart{display:none} .headnote{animation:none} }
+/* the floor: the booth number is the thing you read at a glance, so it leads */
+.exgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(258px,1fr)); gap:9px; margin-bottom:6px}
+.excard{display:flex; gap:11px; align-items:flex-start; background:var(--surface);
+  border:1px solid var(--line); border-radius:10px; padding:10px 12px; box-shadow:var(--shadow)}
+.excard.ours{border-color:var(--gold-line); background:var(--gold-fill)}
+.exbooth{flex:none; min-width:46px; text-align:center; font-family:"IBM Plex Mono", ui-monospace, monospace;
+  font-size:12.5px; font-weight:500; color:var(--ink); background:var(--surface-3);
+  border-radius:6px; padding:4px 6px; line-height:1.25}
+.excard.ours .exbooth{background:var(--gold); color:#fff}
+.exbody{min-width:0; display:flex; flex-direction:column; gap:3px}
+.exname{font-size:13.5px; font-weight:600; color:var(--ink); line-height:1.3}
+.exnote{font-size:11.5px; color:var(--ink-2); line-height:1.35}
+.exwhy{display:flex; flex-wrap:wrap; gap:4px; margin-top:2px}
+.exhall{font-family:Archivo, system-ui, sans-serif; font-size:11.5px; font-weight:600;
+  letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3); margin:16px 0 7px}
+.exfilter{margin:14px 0 16px}
+.exfilter input{width:100%; max-width:340px; font:inherit; font-size:13.5px; color:var(--ink);
+  background:var(--surface); border:1px solid var(--line-2); border-radius:9px; padding:9px 12px}
+.exfilter input:focus{outline:2px solid var(--gold); outline-offset:1px; border-color:var(--gold)}
+.chip.booth{background:var(--surface-3); color:var(--ink); border-color:var(--line-2);
+  font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:10.5px}
 .acctrm{display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   margin-top:11px; padding-top:10px; border-top:1px solid var(--line)}
 .ppofoot{font-size:11px; color:var(--ink-3); margin:9px 0 0; padding-top:9px; border-top:1px solid var(--line); line-height:1.4}
@@ -1160,6 +1181,14 @@ function watchDayHead(){
   }, {threshold: 0});
   HEAD_IO.observe(el);
 }
+document.addEventListener("input", function(e){
+  if(e.target && e.target.id === "exq"){
+    state.exq = e.target.value;
+    const el = document.getElementById("view");
+    if(el){ el.innerHTML = viewExhibitors(); const b = document.getElementById("exq");
+      if(b){ b.focus(); b.setSelectionRange(b.value.length, b.value.length); } }
+  }
+});
 document.addEventListener("click", function(e){
   const t = e.target.closest("[data-head]");
   if(t){ toggleHead(t.getAttribute("data-head")); return; }
@@ -1218,6 +1247,123 @@ Object.keys(PROGRAMMES).forEach(function(dayKey){
     });
   });
 });
+
+/* ---------- the exhibition floor ----------
+   Transcribed from the EURETINA congress exhibitor directory, Sept 2026.
+   Names are kept exactly as the organiser lists them so a re-import can be
+   diffed against this; where our own brief calls a company something else,
+   EX_ALIAS carries the mapping rather than the name being edited here. */
+const EXHIBITORS = [
+  {n:"4D Molecular Therapeutics", b:"B50"},
+  {n:"AbbVie", b:"B10"},
+  {n:"Alcon", b:"B35"},
+  {n:"Alimera", b:"C85"},
+  {n:"Amgen", b:"C60"},
+  {n:"Annexon Bioscience", b:"D11"},
+  {n:"Appasamy Associates", b:"F25"},
+  {n:"APVRS", b:"D56"},
+  {n:"Astellas Pharma", b:"B30"},
+  {n:"Baishun Medical Instrument Factory", b:"F19"},
+  {n:"Bausch+Lomb", b:"A30"},
+  {n:"Bayer", b:"A20"},
+  {n:"Biogen", b:"D25"},
+  {n:"BioRetina", b:"D11"},
+  {n:"Boehringer Ingelheim", b:"C30"},
+  {n:"BVI Medical", b:"D17"},
+  {n:"Cambridge Research Systems", b:"F10"},
+  {n:"Canon Medical Systems Europe BV", b:"C80"},
+  {n:"CAREGEN CO., LTD.", b:"D16"},
+  {n:"Deepeye Medical GmbH", b:"Startup Arena"},
+  {n:"Diagnosys", b:"D10"},
+  {n:"Ebiga-VISION", b:"E47"},
+  {n:"ERN-EYE", b:"F20"},
+  {n:"Espansione Group", b:"A25"},
+  {n:"Eyepoint", b:"F26"},
+  {n:"FREY", b:"F52"},
+  {n:"Geuder AG", b:"E40"},
+  {n:"Global DARE Foundation", b:"D55"},
+  {n:"Haag-Streit Group", b:"C75"},
+  {n:"HEIDELBERG ENGINEERING", b:"A25"},
+  {n:"Horus Pharma", b:"C15"},
+  {n:"iCare", b:"C10"},
+  {n:"Imagine Eyes", b:"F21"},
+  {n:"InFocus Clinical Research", b:"D35"},
+  {n:"Intalight", b:"D35"},
+  {n:"Iridex", b:"E50"},
+  {n:"Jaypee Publishers", b:"F18"},
+  {n:"Karger Publications", b:"D53"},
+  {n:"Keeler", b:"F27"},
+  {n:"Leica Microsystems", b:"F50"},
+  {n:"LKC Technologies", b:"F15"},
+  {n:"Lumibird Medical", b:"2.C20"},
+  {n:"MacuMira", b:"D17"},
+  {n:"MANI, INC.", b:"E10"},
+  {n:"Media MICE", b:"D57"},
+  {n:"MedOne Surgical", b:"E22"},
+  {n:"METROVISION", b:"F12"},
+  {n:"Microclear Medical", b:"F56"},
+  {n:"Moria", b:"E12"},
+  {n:"MSD", b:"A40"},
+  {n:"NIDEK CO., LTD.", b:"C50"},
+  {n:"Norlase", b:"D30"},
+  {n:"Noxilizer Inc", b:"D15"},
+  {n:"Ocular Therapeutix", b:"TBC"},
+  {n:"OCULUS", b:"C55"},
+  {n:"OCULUS Surgical", b:"C55"},
+  {n:"OD-OS GmbH Navilas®", b:"E24"},
+  {n:"Oertli Instrumente", b:"D12"},
+  {n:"OIRRC", b:"E52"},
+  {n:"Okuvision", b:"E53"},
+  {n:"Ollin Biosciences Inc.", b:"3.B30, 3.A11"},
+  {n:"Ophthalmology Times Europe", b:"D52"},
+  {n:"Optopol Technology", b:"E16"},
+  {n:"Optos", b:"C65"},
+  {n:"Profundus AB", b:"F32"},
+  {n:"RCOphth", b:"E55"},
+  {n:"Resono Ophthalmic", b:"F13"},
+  {n:"Retina Today", b:"D50"},
+  {n:"RetinAI", b:"A25"},
+  {n:"Robotrak Technologies Co., Ltd", b:"E51"},
+  {n:"Roche", b:"A10"},
+  {n:"ROLAND CONSULT", b:"E48"},
+  {n:"RUMEX Baltics SIA", b:"F14"},
+  {n:"Sandoz", b:"C20"},
+  {n:"SANOFI", b:"3.C10"},
+  {n:"Science Corporation", b:"B55"},
+  {n:"Sihong Ophsurin Co., Ltd", b:"F31"},
+  {n:"SJJ Solutions B.V.", b:"E20"},
+  {n:"Speedway Surgical Co.", b:"F51"},
+  {n:"Sun Pharma", b:"F57"},
+  {n:"TEKNOMEK MEDİKAL", b:"E56"},
+  {n:"TITAN MEDICAL", b:"F16"},
+  {n:"Topcon Healthcare", b:"B60"},
+  {n:"TowardPi Medical", b:"D20"},
+  {n:"TSK Laboratory", b:"E42"},
+  {n:"Volk Optical", b:"F58"},
+  {n:"Wisepress Medical Bookshop", b:"F09"},
+  {n:"ZEISS Meditec AG", b:"B50"}
+];
+/* our name for them -> the organiser's. A note is set where the stand is not
+   in their own name, so nobody walks the floor looking for the wrong sign. */
+const EX_ALIAS = {
+  "sjj-solutions": "sjj-solutions-b-v",
+  "zeiss-medical-technology": "zeiss-meditec-ag",
+  "msd-eye-bio": "msd"
+};
+const EX_NOTE = {
+  "msd-eye-bio": "Merck (MSD) stand \u2014 they acquired Eye Bio"
+};
+const EX_BY_ID = {};
+EXHIBITORS.forEach(function(r){ EX_BY_ID[slug(r.n)] = r; });
+/* one lookup used everywhere: card badges, the floor tab, the roll-up */
+function boothOf(name){
+  if(!has(name)) return null;
+  const id = slug(name);
+  const target = EX_ALIAS[id] || id;
+  const rec = EX_BY_ID[target];
+  if(!rec) return null;
+  return {booth: rec.b, name: rec.n, note: EX_NOTE[id] || "", alias: target !== id};
+}
 
 /* who is on stage more than once, across both programmes */
 const stageIndex = {};
@@ -1331,7 +1477,7 @@ let READONLY = !!SNAPSHOT;
 const RW = function(html){ return READONLY ? "" : html; };
 
 let db = null;
-let state = { targets:{}, meetings:{}, proposed:{}, outcomes:{}, debriefs:{}, mine:{}, pis:{}, meta:{}, notice:"", tab:"exec", openRows:{}, openCos:{}, headOpen:null, editTeam:false, confirm:null, formerr:"", showSend:false, showDebriefs:false, q:"", qi:0, qhits:[] };
+let state = { targets:{}, meetings:{}, proposed:{}, outcomes:{}, debriefs:{}, mine:{}, pis:{}, meta:{}, notice:"", tab:"exec", openRows:{}, openCos:{}, headOpen:null, exq:"", editTeam:false, confirm:null, formerr:"", showSend:false, showDebriefs:false, q:"", qi:0, qhits:[] };
 
 /* On the team copy there is no shared database, so a colleague's debrief has
    nowhere to go but their own browser. That is enough: they capture it in the
@@ -2332,6 +2478,7 @@ function render(){
   if(state.tab === "exec") v.innerHTML = viewExec();
   else if(PROGRAMMES[state.tab]) v.innerHTML = viewProgramme(state.tab);
   else if(state.tab === "targets") v.innerHTML = viewTargets();
+  else if(state.tab === "exhibitors") v.innerHTML = viewExhibitors();
   else if(state.tab === "pis") v.innerHTML = viewPIs();
   else v.innerHTML = viewDay(state.tab);
   watchDayHead();
@@ -2364,10 +2511,100 @@ function renderTabs(){
   }).join("");
   const npi = Object.keys(state.pis).length;
   const tt = '<button class="tab" role="tab" aria-selected="' + (state.tab==="targets") + '" data-tab="targets">Targets<span class="n">' + COMPANIES.length + '</span></button>' +
+    '<button class="tab" role="tab" aria-selected="' + (state.tab==="exhibitors") + '" data-tab="exhibitors">Exhibitors<span class="n">' + EXHIBITORS.length + '</span></button>' +
     '<button class="tab" role="tab" aria-selected="' + (state.tab==="pis") + '" data-tab="pis">Investigators' + (npi ? '<span class="n">' + npi + '</span>' : "") + '</button>';
   document.getElementById("tabs").innerHTML = ex + tabs + tt;
 }
 
+
+/* ---------- the exhibition floor ----------
+   Two questions this answers, in this order: where do I find the companies we
+   already care about, and who else is here that we have not looked at. The
+   first list is the one people open on the morning; the second is the one that
+   turns a spare twenty minutes into a conversation. */
+function exhibitorRows(){
+  const meetingBy = {};
+  allMeetings().forEach(function(m){ if(has(m.company)) meetingBy[slug(m.company)] = m; });
+  return EXHIBITORS.map(function(r){
+    const id = slug(r.n);
+    /* a brief name that aliases onto this stand counts as the same company */
+    const ourNames = Object.keys(EX_ALIAS).filter(function(k){ return EX_ALIAS[k] === id; });
+    const keys = [id].concat(ourNames);
+    const co = keys.map(function(k){ return CO_BY_ID[k]; }).filter(Boolean)[0] || null;
+    const t  = keys.map(function(k){ return state.targets[k]; }).filter(Boolean)[0] || null;
+    const m  = keys.map(function(k){ return meetingBy[k]; }).filter(Boolean)[0] || null;
+    const note = keys.map(function(k){ return EX_NOTE[k]; }).filter(Boolean)[0] || "";
+    return {id:id, name:r.n, booth:r.b, co:co, target:t, meeting:m, note:note,
+            ours: !!(co || m || (t && (t.status === "target" || t.status === "booked")))};
+  });
+}
+function exCard(x){
+  const why = [];
+  if(x.meeting){
+    const d = DAYS.filter(function(k){ return k.key === x.meeting.day; })[0];
+    why.push('<span class="chip gold">Meeting' + (d ? " \u00b7 " + esc(d.label) : "") +
+      (has(x.meeting.time) ? " " + esc(t12(x.meeting.time)) : "") + '</span>');
+  }
+  if(x.co) why.push('<span class="chip teal">' + (x.co.dayKey === "eis" ? "EIS" : "Forum") + ' agenda</span>');
+  if(!x.meeting && x.target && (x.target.status === "target" || x.target.status === "booked"))
+    why.push('<span class="chip">Flagged</span>');
+  return '<div class="excard' + (x.ours ? " ours" : "") + '">' +
+    '<span class="exbooth">' + esc(x.booth) + '</span>' +
+    '<span class="exbody"><span class="exname">' + esc(x.name) + '</span>' +
+      (x.note ? '<span class="exnote">' + esc(x.note) + '</span>' : "") +
+      (why.length ? '<span class="exwhy">' + why.join("") + '</span>' : "") +
+    '</span>' +
+  '</div>';
+}
+function viewExhibitors(){
+  const rows = exhibitorRows();
+  const q = String(state.exq || "").trim().toLowerCase();
+  const match = function(x){
+    return !q || x.name.toLowerCase().indexOf(q) > -1 || x.booth.toLowerCase().indexOf(q) > -1;
+  };
+  const ours = rows.filter(function(x){ return x.ours; }).filter(match);
+  const rest = rows.filter(function(x){ return !x.ours; }).filter(match);
+  const withMtg = rows.filter(function(x){ return !!x.meeting; }).length;
+  /* a hall letter only counts when the booth really is LetterNumber \u2014
+     "Startup Arena" and "TBC" are not halls S and T */
+  const hallOf = function(b){ return /^[A-Z]\d/.test(b) ? b[0] : "Unnumbered"; };
+  const halls = {};
+  rest.forEach(function(x){ const h = hallOf(x.booth); (halls[h] = halls[h] || []).push(x); });
+  const realHalls = {};
+  rows.forEach(function(x){ if(/^[A-Z]\d/.test(x.booth)) realHalls[x.booth[0]] = 1; });
+
+  return '<div class="sec-head"><div>' +
+    '<h2>The exhibition floor</h2>' +
+    '<p style="margin-bottom:8px">' + EXHIBITORS.length + ' companies exhibiting at the congress. ' +
+      rows.filter(function(x){ return x.ours; }).length + ' of them are already on our board' +
+      (withMtg ? ', ' + withMtg + ' with a meeting booked' : '') + '.</p>' +
+    '</div></div>' +
+    '<div class="statstrip">' +
+      '<div class="stat"><div class="v">' + EXHIBITORS.length + '</div><div class="k">Exhibiting</div></div>' +
+      '<div class="stat accent"><div class="v">' + rows.filter(function(x){ return x.ours; }).length + '</div><div class="k">On our board</div></div>' +
+      '<div class="stat"><div class="v">' + withMtg + '</div><div class="k">Meeting booked</div></div>' +
+      '<div class="stat"><div class="v">' + Object.keys(realHalls).sort().join(" ") + '</div><div class="k">Halls</div></div>' +
+    '</div>' +
+    '<div class="exfilter"><input id="exq" type="search" autocomplete="off" placeholder="Filter by company or booth\u2026" value="' + esc(state.exq || "") + '"></div>' +
+    (ours.length
+      ? '<div class="sec-head" style="margin-bottom:9px"><div>' +
+          '<h3 style="font-family:Archivo;font-size:15px;font-weight:600">Ours on the floor</h3>' +
+          '<p style="margin-top:2px">Companies we are already tracking who have a stand</p></div></div>' +
+        '<div class="exgrid">' + ours.map(exCard).join("") + '</div>'
+      : '') +
+    (rest.length
+      ? '<div class="sec-head" style="margin:22px 0 9px"><div>' +
+          '<h3 style="font-family:Archivo;font-size:15px;font-weight:600">Everyone else</h3>' +
+          '<p style="margin-top:2px">Not on an agenda and not flagged \u2014 the list to walk when a slot opens up</p></div></div>' +
+        Object.keys(halls).sort(function(a,b){
+          if(a === "Unnumbered") return 1; if(b === "Unnumbered") return -1; return a < b ? -1 : 1;
+        }).map(function(h){
+          return '<p class="exhall">' + (h === "Unnumbered" ? "Not a numbered stand" : "Hall " + esc(h)) + '</p>' +
+            '<div class="exgrid">' + halls[h].map(exCard).join("") + '</div>';
+        }).join("")
+      : '') +
+    (!ours.length && !rest.length ? '<div class="empty"><h3>Nothing matches that</h3><p>Clear the filter to see the whole floor.</p></div>' : '');
+}
 
 /* ---------- find ----------
    The overview is where you stand when someone says a name at you. One box,
@@ -4153,6 +4390,16 @@ const durMins = s => { const n = String(s||"").match(/(\d+)\s*h/i), q = String(s
   if(n || q) return (n ? +n[1]*60 : 0) + (q ? +q[1] : 0);
   const d = String(s||"").match(/\d+/); return d ? +d[0] : 30; };
 
+/* Where to find them on the floor, once the meeting is real. Held back on a
+   proposal or an unconfirmed slot: a stand number next to a meeting that may
+   not happen reads like a plan when it is still a hope. */
+function boothBadge(m){
+  if(m.proposed || m.confirmed === false) return "";
+  const b = boothOf(m.company);
+  if(!b) return "";
+  return '<span class="chip booth" title="' +
+    esc(b.note || ("On the exhibition floor as " + b.name)) + '">\u25c9 Booth ' + esc(b.booth) + '</span>';
+}
 function meetingCard(m, inTimeline){
   const open = !!state.openRows["mtg-" + m.id];
   const fmt = {formal:["kind","Formal"], informal:["kind","Informal"], meal:["gold","Meal"]}[m.format] || ["kind","Meeting"];
@@ -4181,6 +4428,7 @@ function meetingCard(m, inTimeline){
     wasHeld(m) ? '<span class="chip green">Held</span>' : "",
     originOf(m) === "hunted" ? '<span class="chip teal">Tracked down</span>' : "",
     sfApproved(m) ? '<span class="chip gold">Approved for SF</span>' : "",
+    boothBadge(m),
     (!m.proposed && debriefLogged(debriefOf(m.id))) ? '<span class="chip teal">Debriefed</span>' : "",
     stage,
     has(m.topic) ? '<span style="color:var(--ink-2)">' + esc(m.topic) + '</span>' : ""

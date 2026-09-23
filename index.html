@@ -2108,7 +2108,7 @@ function dismissSplash(){
      slow load waits no longer at all. */
   const go = function(){
     const elapsed = (window.performance && performance.now) ? performance.now() : 600;
-    const centred = Math.min(Math.max(elapsed * 4, 1250), 4000);
+    const centred = Math.min(Math.max(elapsed * 3.5, 1094), 3500);
     setTimeout(function(){
       requestAnimationFrame(function(){ requestAnimationFrame(fly); });
     }, Math.max(0, centred - elapsed));

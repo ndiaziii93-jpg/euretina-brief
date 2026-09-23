@@ -208,24 +208,7 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
   .vaddr{font-size:12px}
 }
 @media print{ .mapbtn,.cart{display:none} .headnote{animation:none} }
-/* the floor: the booth number is the thing you read at a glance, so it leads */
-.exgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(258px,1fr)); gap:9px; margin-bottom:6px}
-.excard{display:flex; flex-direction:column; gap:9px; background:var(--surface);
-  border:1px solid var(--line); border-radius:9px; overflow:hidden; padding:11px 12px;
-  transition:border-color .15s}
-.excard.ours{border-color:var(--gold-line); box-shadow:inset 3px 0 0 var(--gold)}
-.exhead{display:flex; gap:11px; align-items:flex-start}
-.exbooth{flex:none; min-width:46px; text-align:center; font-family:"IBM Plex Mono", ui-monospace, monospace;
-  font-size:12.5px; font-weight:500; color:var(--ink); background:var(--surface-3);
-  border-radius:6px; padding:4px 6px; line-height:1.25}
-.excard.ours .exbooth{background:var(--gold-fill); color:var(--gold); border:1px solid var(--gold-line)}
-.exacts{display:flex; flex-wrap:wrap; gap:5px; align-items:center;
-  border-top:1px solid var(--line); padding-top:8px}
-.sbtn.go{color:var(--gold); border-color:var(--gold-line); font-weight:600}
-.exbody{min-width:0; display:flex; flex-direction:column; gap:3px}
-.exname{font-size:13.5px; font-weight:600; color:var(--ink); line-height:1.3}
-.exnote{font-size:11.5px; color:var(--ink-2); line-height:1.35}
-.exwhy{display:flex; flex-wrap:wrap; gap:4px; margin-top:2px}
+/* the floor reuses the Targets card wholesale; only the page furniture is new */
 .exhall{font-family:Archivo, system-ui, sans-serif; font-size:11.5px; font-weight:600;
   letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3); margin:16px 0 7px}
 .exfilter{margin:14px 0 16px}
@@ -2549,39 +2532,22 @@ function exhibitorRows(){
             ours: !!(co || m || (t && (t.status === "target" || t.status === "booked")))};
   });
 }
-function exCard(x){
-  const why = [];
-  if(x.meeting){
-    const d = DAYS.filter(function(k){ return k.key === x.meeting.day; })[0];
-    why.push('<span class="chip gold">Meeting' + (d ? " \u00b7 " + esc(d.label) : "") +
-      (has(x.meeting.time) ? " " + esc(t12(x.meeting.time)) : "") + '</span>');
-  }
-  if(x.co) why.push('<span class="chip teal">' + (x.co.dayKey === "eis" ? "EIS" : "Forum") + ' agenda</span>');
-  if(!x.meeting && x.target && (x.target.status === "target" || x.target.status === "booked"))
-    why.push('<span class="chip">Flagged</span>');
-  const st = (x.target || {}).status;
-  /* the same three flags as the Targets board, writing to the same record, so
-     flagging here puts the company on that tab rather than making a copy */
-  const acts = RW('<div class="exacts">' +
-    Object.keys(STATUS).map(function(k){
-      return '<button class="sbtn' + (k === "dropped" ? " drop" : "") + '" data-exstatus="' +
-        esc(x.key) + '|' + k + '" aria-pressed="' + (st === k) + '">' + STATUS[k].label + '</button>';
-    }).join("") +
-    (st ? '<button class="sbtn" data-exstatus="' + esc(x.key) + '|">Clear</button>' : "") +
-    (x.meeting ? "" : '<button class="sbtn go" data-exmeet="' + esc(x.key) + '">+ Meeting</button>') +
-  '</div>');
-  return '<div class="excard' + (x.ours ? " ours" : "") + '">' +
-    '<div class="exhead">' +
-      '<span class="exbooth">' + esc(x.booth) + '</span>' +
-      '<span class="exbody"><span class="exname">' + esc(x.name) + '</span>' +
-        (x.note ? '<span class="exnote">' + esc(x.note) + '</span>' : "") +
-        (why.length ? '<span class="exwhy">' + why.join("") + '</span>' : "") +
-      '</span>' +
-    '</div>' + acts +
-  '</div>';
+/* An exhibitor IS an account — the same record the Targets board keeps. So the
+   floor renders the same card: open it and you get the brief, the origin rows,
+   the debrief and the note, filled in exactly as they are on Targets. A company
+   we have never touched gets an empty account of the same shape rather than a
+   different kind of tile. */
+function exAccount(x, acc){
+  return acc[x.key] || {id:x.key, name:x.label, meetings:[], flag:null, activeOpp:false,
+                        newEng:false, oppMeetings:[], oppNote:"", forum:null};
+}
+function exCard(x, acc){
+  return x.co ? companyCard(x.co) : offCard(exAccount(x, acc));
 }
 function viewExhibitors(){
   const rows = exhibitorRows();
+  const acc = accounts();
+  const card = function(x){ return exCard(x, acc); };
   const q = String(state.exq || "").trim().toLowerCase();
   const match = function(x){
     return !q || x.name.toLowerCase().indexOf(q) > -1 || x.booth.toLowerCase().indexOf(q) > -1;
@@ -2614,7 +2580,7 @@ function viewExhibitors(){
       ? '<div class="sec-head" style="margin-bottom:9px"><div>' +
           '<h3 style="font-family:Archivo;font-size:15px;font-weight:600">Ours on the floor</h3>' +
           '<p style="margin-top:2px">Companies we are already tracking who have a stand</p></div></div>' +
-        '<div class="exgrid">' + ours.map(exCard).join("") + '</div>'
+        '<div class="cgrid">' + ours.map(card).join("") + '</div>'
       : '') +
     (rest.length
       ? '<div class="sec-head" style="margin:22px 0 9px"><div>' +
@@ -2624,7 +2590,7 @@ function viewExhibitors(){
           if(a === "Unnumbered") return 1; if(b === "Unnumbered") return -1; return a < b ? -1 : 1;
         }).map(function(h){
           return '<p class="exhall">' + (h === "Unnumbered" ? "Not a numbered stand" : "Hall " + esc(h)) + '</p>' +
-            '<div class="exgrid">' + halls[h].map(exCard).join("") + '</div>';
+            '<div class="cgrid">' + halls[h].map(card).join("") + '</div>';
         }).join("")
       : '') +
     (!ours.length && !rest.length ? '<div class="empty"><h3>Nothing matches that</h3><p>Clear the filter to see the whole floor.</p></div>' : '');
@@ -3942,6 +3908,14 @@ function forumMeetingRow(m){
 }
 
 /* ---------- company card ---------- */
+/* The stand, on whichever card the company appears — Targets and the floor
+   are the same card now, so the booth travels with it. */
+function boothChip(name){
+  const b = boothOf(name);
+  if(!b) return "";
+  return '<span class="chip booth" title="' +
+    esc(b.note || ("On the exhibition floor as " + b.name)) + '">\u25c9 ' + esc(b.booth) + '</span>';
+}
 function companyCard(c){
   if(!c) return "";
   const t = state.targets[c.id] || {};
@@ -3958,6 +3932,7 @@ function companyCard(c){
         (c.slots.length > 1 ? ' &middot; ' + c.slots.length + ' slots' : '') +
         (c.alsoOn.length ? ' &middot; also on stage' : '') + '</span></span>' +
     '<span style="display:flex;align-items:center;gap:6px;flex:none">' +
+      boothChip(c.name) +
       (spoke ? '<span class="chip green">Spoke</span>' : "") +
       (st ? '<span class="chip ' + st.chip + '">' + st.label + '</span>' : "") +
       '<svg class="chev" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
@@ -4078,6 +4053,7 @@ function offStageBoard(){
    is rebuilt from that meeting. Neither can be removed from here. */
 function removeAccountRow(a){
   if(a.forum || a.meetings.length) return "";
+  if(!state.targets[a.id]) return "";   /* nothing saved: nothing to remove */
   if(state.confirm && state.confirm.kind === "acct" && state.confirm.id === a.id){
     return '<div class="acctrm"><span class="confirmrow">Remove ' + esc(a.name) +
       ' from the board for everyone?' +
@@ -4100,6 +4076,7 @@ function offCard(a){
     '<span><span class="cname">' + (flagged ? ORA + " " : "") + esc(a.name) + '</span>' +
       '<span class="cslot">' + (days.length ? esc(days.join(", ")) : "no meeting booked") + '</span></span>' +
     '<span style="display:flex;align-items:center;gap:6px;flex:none">' +
+      boothChip(a.name) +
       (st ? '<span class="chip ' + st.chip + '">' + st.label + '</span>' : "") +
       '<svg class="chev" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
     '</span></button>';
@@ -4126,6 +4103,10 @@ function offCard(a){
       (t.status ? '<button class="sbtn" data-status="' + a.id + '|">Clear</button>' : "") +
     '</div>' +
     '<textarea class="note" data-note="' + a.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>' +
+    (a.meetings.length ? "" :
+      '<div class="acctrm"><button class="btn sec sm" data-exmeet="' + esc(a.id) + '">+ Add meeting</button>' +
+      '<span class="rosterhint" style="margin:0">Opens the meeting form with ' + esc(a.name) +
+      ' filled in, so it lands on the day you met.</span></div>') +
     removeAccountRow(a)) +
   '</div></div>';
 }
@@ -5191,7 +5172,9 @@ document.addEventListener("click", e => {
      meeting lands on a day rather than living as a note on a stand */
   if(t.dataset.exmeet){
     const k = t.dataset.exmeet;
-    openEditor(null, (DAYS[2] || DAYS[0]).key, EX_LABEL[k] || k);
+    const nm = EX_LABEL[k] || (state.targets[k] || {}).name ||
+               ((CO_BY_ID[k] || {}).name) || k;
+    openEditor(null, (DAYS[2] || DAYS[0]).key, nm);
     return;
   }
   if(t.dataset.new){ openEditor(null, t.dataset.new); return; }

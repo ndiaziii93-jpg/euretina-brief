@@ -2082,17 +2082,18 @@ function dismissSplash(){
     }, 675);
     setTimeout(done, 1363);
   };
-  /* Hold the mark centred for as long again as it took to get here, so the
-     centred beat is double whatever the device and network actually did
-     rather than a fixed guess that is too long on wifi and too short on 4G.
-     Floored so a cached load still gets a beat, capped so a bad one does not
-     sit there. */
+  /* How long the mark sits centred, measured from the moment the page started
+     rather than from now, so it scales with what the load actually cost: too
+     long on wifi and too short on 4G is what any fixed number gives you.
+     Floored so a cached load still gets a proper beat, capped so a bad
+     connection does not hold the screen, and the subtraction means an already
+     slow load waits no longer at all. */
   const go = function(){
-    const elapsed = (window.performance && performance.now) ? performance.now() : 500;
-    const hold = Math.min(Math.max(elapsed, 320), 1800);
+    const elapsed = (window.performance && performance.now) ? performance.now() : 600;
+    const centred = Math.min(Math.max(elapsed * 4, 1250), 4000);
     setTimeout(function(){
       requestAnimationFrame(function(){ requestAnimationFrame(fly); });
-    }, hold);
+    }, Math.max(0, centred - elapsed));
   };
   if(document.fonts && document.fonts.ready && document.fonts.ready.then){
     let waited = false;

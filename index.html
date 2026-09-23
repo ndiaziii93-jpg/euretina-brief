@@ -166,21 +166,48 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
 .pmeta .on{color:var(--gold); font-weight:600}
 .youtag{font-size:10px; font-weight:600; color:var(--ink-3); border:1px solid var(--line-2);
   border-radius:4px; padding:1px 4px; margin-left:5px; vertical-align:1px; letter-spacing:.03em}
-.venue{display:flex; gap:12px; align-items:flex-start; margin:0 0 12px; max-width:660px}
-.mapbtn{flex:none; width:38px; height:38px; border-radius:50%; display:grid; place-items:center;
+/* the fold: a caret in Ora red is the whole affordance, plus the title
+   picking up that red on hover so it reads as a control, not a heading */
+.headline{margin:2px 0 6px}
+.htog{appearance:none; background:none; border:0; padding:0; margin:0; cursor:pointer;
+  font:inherit; color:inherit; display:inline-flex; align-items:center; gap:9px; text-align:left;
+  transition:color .15s ease}
+.htog:hover{color:var(--gold)}
+.htog:focus-visible{outline:2px solid var(--gold); outline-offset:4px; border-radius:6px}
+.cart{color:var(--gold); flex:none; transition:transform .18s ease}
+.htog[aria-expanded="true"] .cart, .vtog[aria-expanded="true"] .cart{transform:rotate(90deg)}
+@media (prefers-reduced-motion: reduce){ .cart, .htog, .vtog, .mapbtn{transition:none} }
+
+.vrow{display:flex; align-items:center; gap:10px; margin:0 0 11px; max-width:100%}
+.vtog{appearance:none; border:0; background:none; cursor:pointer; margin:0;
+  padding:5px 10px 5px 8px; border-radius:9px; min-width:0; text-align:left;
+  display:flex; align-items:center; gap:4px 9px; flex-wrap:wrap;
+  transition:background .15s ease}
+.vtog:hover{background:var(--surface-2)}
+.vtog:focus-visible{outline:2px solid var(--gold); outline-offset:2px}
+.vname{font-family:Archivo, system-ui, sans-serif; font-size:13.5px; font-weight:600; color:var(--ink)}
+.vtog:hover .vname{color:var(--gold)}
+.vaddr{font-size:12.5px; color:var(--ink-2)}
+.vroom{font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11px; font-weight:500;
+  color:var(--ink-2); background:var(--surface-3); border-radius:4px; padding:1px 5px; white-space:nowrap}
+.headnote{font-size:13px; color:var(--ink-2); line-height:1.5; max-width:660px;
+  margin:0 0 12px; padding:10px 13px; background:var(--surface-2);
+  border:1px solid var(--line); border-left:3px solid var(--gold); border-radius:0 9px 9px 0;
+  animation:headin .17s ease-out}
+@keyframes headin{from{opacity:0; transform:translateY(-3px)} to{opacity:1; transform:none}}
+@media (prefers-reduced-motion: reduce){ .headnote{animation:none} }
+
+.mapbtn{flex:none; width:36px; height:36px; border-radius:50%; display:grid; place-items:center;
   color:var(--gold); background:var(--gold-fill); border:1px solid var(--gold-line);
   text-decoration:none; transition:background .15s ease, color .15s ease, transform .15s ease}
 .mapbtn:hover{background:var(--gold); color:#fff; transform:translateY(-1px)}
 .mapbtn:focus-visible{outline:2px solid var(--gold); outline-offset:3px}
-@media (prefers-reduced-motion: reduce){ .mapbtn{transition:none} .mapbtn:hover{transform:none} }
-.vtext{min-width:0}
-.vname{font-family:Archivo, system-ui, sans-serif; font-size:13.5px; font-weight:600; color:var(--ink); margin:1px 0 0}
-.vroom{font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11px; font-weight:500;
-  color:var(--ink-2); background:var(--surface-3); border-radius:4px; padding:1px 5px; margin-left:5px; white-space:nowrap}
-.vaddr{font-size:12.5px; color:var(--ink-2); margin:2px 0 0}
-.vnote{font-size:12px; color:var(--ink-2); margin:4px 0 0; line-height:1.45}
-@media (max-width:640px){ .venue{gap:10px} .mapbtn{width:34px; height:34px} }
-@media print{ .mapbtn{display:none} }
+@media (prefers-reduced-motion: reduce){ .mapbtn:hover{transform:none} }
+@media (max-width:640px){
+  .vrow{gap:8px} .mapbtn{width:32px; height:32px} .vtog{padding:5px 7px 5px 6px}
+  .vaddr{font-size:12px}
+}
+@media print{ .mapbtn,.cart{display:none} .headnote{animation:none} }
 .acctrm{display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   margin-top:11px; padding-top:10px; border-top:1px solid var(--line)}
 .ppofoot{font-size:11px; color:var(--ink-3); margin:9px 0 0; padding-top:9px; border-top:1px solid var(--line); line-height:1.4}
@@ -1071,14 +1098,33 @@ const PLACES = {
 const mapHref = function(q){
   return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
 };
-/* One pin, one address, one line on how to arrive. Sits under the day heading
-   on every tab, because "where is this" is a question people ask in a taxi. */
-function venueBlock(d){
+/* ---------- the day header, folded ----------
+   Two blocks of prose used to sit between the heading and the first agenda
+   row. Both are still here, but behind their own title: the heading opens the
+   day's intro, the venue line opens how to arrive. Collapsed, a tab is the
+   event, the place, and then the timeline \u2014 which is what someone opening
+   this on the morning actually wants. Either one closes on a click outside or
+   once the header scrolls off the screen, so nothing is left hanging open. */
+const CARET = '<svg class="cart" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" ' +
+  'focusable="false"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function headToggle(title, kind){
+  const on = state.headOpen === kind;
+  return '<h2 class="headline"><button class="htog" type="button" data-head="' + kind + '" ' +
+    'aria-expanded="' + on + '">' + esc(title) + CARET + '</button></h2>';
+}
+function headNote(kind, text){
+  if(state.headOpen !== kind || !has(text)) return "";
+  return '<p class="headnote">' + esc(text) + '</p>';
+}
+/* the venue on one line: pin, building, street. The arrival note is the fold. */
+function venueRow(d){
   const pl = PLACES[d.place];
   if(!pl) return "";
   const room = (d.venue && d.venue.indexOf("\u00b7") > -1)
     ? d.venue.split("\u00b7").slice(1).join("\u00b7").trim() : "";
-  return '<div class="venue">' +
+  return '<div class="vrow">' +
     '<a class="mapbtn" href="' + esc(mapHref(pl.q)) + '" target="_blank" rel="noopener noreferrer" ' +
       'title="Open in Google Maps" aria-label="Open ' + esc(pl.name) + ' in Google Maps">' +
       '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">' +
@@ -1086,14 +1132,42 @@ function venueBlock(d){
           'stroke-width="1.9" stroke-linejoin="round"/>' +
         '<circle cx="12" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.9"/>' +
       '</svg></a>' +
-    '<div class="vtext">' +
-      '<p class="vname">' + esc(pl.name) +
-        (room ? ' <span class="vroom">' + esc(room) + '</span>' : "") + '</p>' +
-      '<p class="vaddr">' + esc(pl.addr) + '</p>' +
-      '<p class="vnote">' + esc(pl.note) + '</p>' +
-    '</div>' +
+    '<button class="vtog" type="button" data-head="venue" ' +
+      'aria-expanded="' + (state.headOpen === "venue") + '">' +
+      '<span class="vname">' + esc(pl.name) + '</span>' +
+      '<span class="vaddr">' + esc(pl.addr) + '</span>' +
+      (room ? '<span class="vroom">' + esc(room) + '</span>' : "") +
+      CARET +
+    '</button>' +
   '</div>';
 }
+/* one open at a time: a second panel under the first only rebuilds the wall
+   of text the fold was meant to remove */
+function toggleHead(kind){
+  state.headOpen = state.headOpen === kind ? null : kind;
+  render();
+}
+let HEAD_IO = null;
+function watchDayHead(){
+  if(HEAD_IO){ HEAD_IO.disconnect(); HEAD_IO = null; }
+  const el = document.getElementById("dayhead");
+  if(!el || typeof IntersectionObserver !== "function") return;
+  HEAD_IO = new IntersectionObserver(function(entries){
+    if(!state.headOpen) return;
+    for(let i = 0; i < entries.length; i++){
+      if(!entries[i].isIntersecting){ state.headOpen = null; render(); return; }
+    }
+  }, {threshold: 0});
+  HEAD_IO.observe(el);
+}
+document.addEventListener("click", function(e){
+  const t = e.target.closest("[data-head]");
+  if(t){ toggleHead(t.getAttribute("data-head")); return; }
+  if(state.headOpen && !e.target.closest("#dayhead")){ state.headOpen = null; render(); }
+});
+document.addEventListener("keydown", function(e){
+  if(e.key === "Escape" && state.headOpen){ state.headOpen = null; render(); }
+});
 
 const DAYS = [
   {key:"forum", short:"Forum", label:"Forum", long:"Wednesday 30 September", date:"30 Sep 2026",
@@ -1257,7 +1331,7 @@ let READONLY = !!SNAPSHOT;
 const RW = function(html){ return READONLY ? "" : html; };
 
 let db = null;
-let state = { targets:{}, meetings:{}, proposed:{}, outcomes:{}, debriefs:{}, mine:{}, pis:{}, meta:{}, notice:"", tab:"exec", openRows:{}, openCos:{}, editTeam:false, confirm:null, formerr:"", showSend:false, showDebriefs:false, q:"", qi:0, qhits:[] };
+let state = { targets:{}, meetings:{}, proposed:{}, outcomes:{}, debriefs:{}, mine:{}, pis:{}, meta:{}, notice:"", tab:"exec", openRows:{}, openCos:{}, headOpen:null, editTeam:false, confirm:null, formerr:"", showSend:false, showDebriefs:false, q:"", qi:0, qhits:[] };
 
 /* On the team copy there is no shared database, so a colleague's debrief has
    nowhere to go but their own browser. That is enough: they capture it in the
@@ -2260,6 +2334,7 @@ function render(){
   else if(state.tab === "targets") v.innerHTML = viewTargets();
   else if(state.tab === "pis") v.innerHTML = viewPIs();
   else v.innerHTML = viewDay(state.tab);
+  watchDayHead();
 }
 
 function counts(){
@@ -3499,11 +3574,12 @@ function viewProgramme(key){
     {v:t12(sessions[0].t), k:"Doors \u2014 registration opens"}
   ];
   return '' +
-  '<div class="sec-head"><div>' +
-    '<p class="eyebrow">Day 0 &middot; ' + esc(d.long) + ' &middot; ' + esc(d.venue) + '</p>' +
-    '<h2>' + esc(P.heading) + '</h2>' +
-    '<p style="margin-bottom:8px">' + esc(P.intro) + '</p>' +
-    venueBlock(d) +
+  '<div class="sec-head" id="dayhead"><div>' +
+    '<p class="eyebrow">Day 0 &middot; ' + esc(d.long) + '</p>' +
+    headToggle(P.heading, "intro") +
+    headNote("intro", P.intro) +
+    venueRow(d) +
+    headNote("venue", (PLACES[d.place] || {}).note) +
     eventTag(d) +
     ' <button class="chip amber" style="cursor:pointer;border-style:solid" data-tab="' + (key === "eis" ? "forum" : "eis") + '">' +
       '&#9888; Runs against ' + esc(key === "eis" ? "the Retina Forum" : "EIS") + ' &mdash; open it</button>' +
@@ -4023,11 +4099,12 @@ function submitPI(id){
 function viewDay(key){
   const d = DAYS.find(x => x.key === key);
   const ms = dayMeetings(key);
-  const head = '<div class="sec-head">' +
-    '<div><p class="eyebrow">' + esc(d.sub) + ' &middot; ' + esc(d.venue) + '</p>' +
-    '<h2>' + esc(d.long) + '</h2>' +
-    '<p style="margin-bottom:8px">Collapsed by default: time, company, format, location and what a win looks like. Open a card for the full brief.</p>' +
-    venueBlock(d) +
+  const head = '<div class="sec-head" id="dayhead">' +
+    '<div><p class="eyebrow">' + esc(d.sub) + '</p>' +
+    headToggle(d.long, "intro") +
+    headNote("intro", "Collapsed by default: time, company, format, location and what a win looks like. Open a card for the full brief.") +
+    venueRow(d) +
+    headNote("venue", (PLACES[d.place] || {}).note) +
     eventTag(d) + '</div>' +
     RW('<button class="btn" data-new="' + key + '">Add meeting</button>') + '</div>';
 
@@ -4822,7 +4899,7 @@ document.addEventListener("click", e => {
     return;
   }
 
-  if(t.dataset.tab){ state.tab = t.dataset.tab; render(); window.scrollTo({top:0,behavior:"smooth"}); return; }
+  if(t.dataset.tab){ state.tab = t.dataset.tab; state.headOpen = null; render(); window.scrollTo({top:0,behavior:"smooth"}); return; }
   if(t.dataset.row){ const k = t.dataset.row; state.openRows[k] = !state.openRows[k]; render(); return; }
   if(t.dataset.co){ const k = t.dataset.co; state.openCos[k] = !state.openCos[k]; render(); return; }
   if(t.dataset.status !== undefined && t.hasAttribute("data-status")){

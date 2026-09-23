@@ -2140,15 +2140,22 @@ function dismissSplash(){
     }, 675);
     setTimeout(done, 1363);
   };
-  /* How long the mark sits centred, measured from the moment the page started
-     rather than from now, so it scales with what the load actually cost: too
-     long on wifi and too short on 4G is what any fixed number gives you.
-     Floored so a cached load still gets a proper beat, capped so a bad
-     connection does not hold the screen, and the subtraction means an already
-     slow load waits no longer at all. */
+  /* How long the mark sits centred, measured from when the page started rather
+     than from now, so it scales with what the load actually cost.
+
+     Phone and laptop get different numbers because they are different moments.
+     On a phone this is an app opening from the home screen, usually warm, and
+     the pause reads as a launch. On a laptop it is a tab in a browser, usually
+     a cold fetch of the whole page and its fonts, so the same multiplier lands
+     several times longer and starts to feel like waiting. The wide screen is
+     held for less, and the phone keeps the numbers it already had. */
+  const wide = !!(window.matchMedia && window.matchMedia("(min-width: 820px)").matches);
+  const SPLASH = wide
+    ? {mult: 2.2, min: 760,  max: 2000}      /* laptop: a beat, then get on with it */
+    : {mult: 3.5, min: 1094, max: 3500};     /* phone: unchanged */
   const go = function(){
     const elapsed = (window.performance && performance.now) ? performance.now() : 600;
-    const centred = Math.min(Math.max(elapsed * 3.5, 1094), 3500);
+    const centred = Math.min(Math.max(elapsed * SPLASH.mult, SPLASH.min), SPLASH.max);
     setTimeout(function(){
       requestAnimationFrame(function(){ requestAnimationFrame(fly); });
     }, Math.max(0, centred - elapsed));

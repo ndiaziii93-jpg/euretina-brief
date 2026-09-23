@@ -2913,10 +2913,13 @@ function importPanel(){
                       '" aria-pressed="' + on + '">' + o.label + '</button>';
                   }).join("") +
                 '</span><span class="impnote">' +
-                  (r.wed.length > 1
-                    ? "At both, meeting sits on " +
-                      esc((DAYS.filter(function(d){ return d.key === r.day; })[0] || {}).label || "?")
-                    : (r.wed.length ? esc(wedLabel(r.wed)) : "Pick Forum, EIS or both")) +
+                  (!r.wed.length
+                    ? "Pick Forum, EIS or off-site"
+                    : esc(wedLabel(r.wed)) +
+                      (r.wed.filter(function(x){ return WED_AT.indexOf(x) > -1; }).length !== 1
+                        ? ", card sits on " +
+                          esc((DAYS.filter(function(d){ return d.key === r.day; })[0] || {}).label || "?")
+                        : "")) +
                 '</span>'
               : '<select data-impday="' + i + '">' +
             '<option value=""' + (r.day ? "" : " selected") + '>— pick a day</option>' +
@@ -2955,7 +2958,7 @@ async function runImport(){
   const st = sfImportRows();
   const take = (st.rows || []).filter(function(r){ return r.take; });
   const noWed = take.filter(function(r){ return r.wed && !r.wed.length; });
-  if(noWed.length) return formError(noWed[0].company + " is on 30 September. Tick Forum, EIS or both.");
+  if(noWed.length) return formError(noWed[0].company + " is on 30 September. Tick Forum, EIS or off-site.");
   const noDay = take.filter(function(r){ return !r.day; });
   if(!take.length) return formError("Tick at least one meeting.");
   if(noDay.length) return formError(noDay[0].company + " has no day set — 30 September is two tabs, so it has to be picked.");
@@ -2996,11 +2999,13 @@ function wedBoard(){
   return '<div class="sec-head" style="margin-bottom:9px"><div>' +
     '<h2 style="font-size:17px">Before EURETINA opened</h2>' +
     '<p>Wednesday 30 September ran two programmes at once. Marked on the company card \u2014 a company at ' +
-    'both counts once, under Both.</p></div></div>' +
+    'both counts once, under Both. Off-site is counted separately: it is a conversation on the Wednesday, ' +
+    'not attendance at either programme. Thursday to Sunday is EURETINA, so nothing here applies to those days.</p></div></div>' +
     '<div class="statstrip">' +
       '<div class="stat"><div class="v">' + c.forum + '</div><div class="k">Forum only</div></div>' +
       '<div class="stat"><div class="v">' + c.eis + '</div><div class="k">EIS only</div></div>' +
       '<div class="stat accent"><div class="v">' + c.both + '</div><div class="k">Both</div></div>' +
+      '<div class="stat"><div class="v">' + c.offsite + '</div><div class="k">Off-site</div></div>' +
       '<div class="stat"><div class="v">' + c.marked + '</div><div class="k">Companies marked</div></div>' +
     '</div>';
 }
@@ -4200,15 +4205,29 @@ function forumMeetingRow(m){
    That is a property of the company, not of one meeting: a meeting sits on the
    day it happened, but "who did we see before EURETINA opened" is the count
    people actually ask for afterwards. Kept as a list so both can be true. */
-const WED_PROG = [{k:"forum", label:"Forum"}, {k:"eis", label:"EIS"}];
+const WED_PROG = [{k:"forum", label:"Forum"}, {k:"eis", label:"EIS"}, {k:"offsite", label:"Off-site"}];
+/* the two programmes only. Off-site sits beside them rather than among them:
+   drinks across town on the Wednesday is worth recording, but it is not
+   attendance at either programme and must not be counted as if it were. */
+const WED_AT = ["forum", "eis"];
 function wedOf(id){
   const w = (state.targets[id] || {}).wed;
-  return Array.isArray(w) ? w.filter(function(x){ return x === "forum" || x === "eis"; }) : [];
+  return Array.isArray(w) ? w.filter(function(x){
+    return x === "forum" || x === "eis" || x === "offsite";
+  }) : [];
 }
 function wedLabel(w){
-  if(!w.length) return "Not marked";
-  if(w.length > 1) return "At both";
-  return w[0] === "forum" ? "Forum only" : "EIS only";
+  const at = w.filter(function(x){ return WED_AT.indexOf(x) > -1; });
+  const off = w.indexOf("offsite") > -1;
+  let base;
+  if(!at.length) base = off ? "Off-site only" : "Not marked";
+  else if(at.length > 1) base = "At both";
+  else base = at[0] === "forum" ? "Forum only" : "EIS only";
+  if(!off) return base;
+  if(!at.length) return base;               /* already reads "Off-site only" */
+  /* "EIS only + off-site" contradicts itself; the "only" is about the two
+     programmes, so it goes once off-site is in the picture */
+  return base.replace(" only", "") + " + off-site";
 }
 function toggleWed(id, k, name){
   const cur = wedOf(id);
@@ -4230,15 +4249,17 @@ function wedRow(id, name){
 }
 /* the roll-up the tracking question wants: forum only, EIS only, both */
 function wedCounts(){
-  let forum = 0, eis = 0, both = 0;
+  let forum = 0, eis = 0, both = 0, offsite = 0, marked = 0;
   Object.keys(state.targets).forEach(function(k){
     const w = wedOf(k);
     if(!w.length) return;
-    if(w.length > 1) both++;
-    else if(w[0] === "forum") forum++;
-    else eis++;
+    marked++;
+    if(w.indexOf("offsite") > -1) offsite++;
+    const at = w.filter(function(x){ return WED_AT.indexOf(x) > -1; });
+    if(at.length > 1) both++;
+    else if(at.length === 1) (at[0] === "forum" ? forum++ : eis++);
   });
-  return {forum: forum, eis: eis, both: both, marked: forum + eis + both};
+  return {forum: forum, eis: eis, both: both, offsite: offsite, marked: marked};
 }
 
 /* The stand, on whichever card the company appears — Targets and the floor
@@ -5523,7 +5544,10 @@ document.addEventListener("click", e => {
     if(r){
       const cur = r.wed || [];
       r.wed = cur.indexOf(bits[1]) > -1 ? cur.filter(function(x){ return x !== bits[1]; }) : cur.concat([bits[1]]);
-      r.day = r.wed[0] || "";
+      const at = r.wed.filter(function(x){ return WED_AT.indexOf(x) > -1; });
+      /* off-site is not a tab, so a card with only that still shows under the
+         Forum day; the row says so rather than the day quietly changing */
+      r.day = at[0] || (r.wed.length ? "forum" : "");
       importPanel();
     }
     return;

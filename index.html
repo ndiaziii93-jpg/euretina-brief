@@ -2880,7 +2880,8 @@ function sfParse(text){
             time: g.time || "", day: day,
             /* a 30 September row gets the Forum/EIS toggle rather than one day,
                because a company can have been at both */
-            wed: /^9\/30\//.test(String(g.date).trim()) ? (day ? [day] : []) : null,
+            isWed: /^9\/30\//.test(String(g.date).trim()),
+            wed: /^9\/30\//.test(String(g.date).trim()) ? (day || "") : "",
             people: g.people, ora: g.ora, subject: g.subject, account: g.account,
             dup: dup ? dup.id : "", take: !dup};
   });
@@ -2905,21 +2906,19 @@ function importPanel(){
             (slug(r.company) !== slug(r.raw) ? '<span class="impnote">export said "' + esc(r.raw) + '"</span>' : '') +
             '<span class="impnote">' + esc(r.how) + (r.dup ? ' · already in the brief' : '') + '</span></td>' +
           '<td>' +
-            (r.wed
+            (r.isWed
               ? '<span class="impwed">' +
                   WED_PROG.map(function(o){
-                    const on = r.wed.indexOf(o.k) > -1;
                     return '<button class="sbtn wed" data-impwed="' + i + '|' + o.k +
-                      '" aria-pressed="' + on + '">' + o.label + '</button>';
+                      '" aria-pressed="' + (r.wed === o.k) + '">' + o.label + '</button>';
                   }).join("") +
                 '</span><span class="impnote">' +
-                  (!r.wed.length
-                    ? "Pick Forum, EIS or off-site"
-                    : esc(wedLabel(r.wed)) +
-                      (r.wed.filter(function(x){ return WED_AT.indexOf(x) > -1; }).length !== 1
-                        ? ", card sits on " +
-                          esc((DAYS.filter(function(d){ return d.key === r.day; })[0] || {}).label || "?")
-                        : "")) +
+                  (!r.wed
+                    ? "Pick one"
+                    : (r.wed === "forum" || r.wed === "eis"
+                        ? esc(wedLabel(r.wed))
+                        : esc(wedLabel(r.wed)) + ", card sits on " +
+                          esc((DAYS.filter(function(d){ return d.key === r.day; })[0] || {}).label || "?"))) +
                 '</span>'
               : '<select data-impday="' + i + '">' +
             '<option value=""' + (r.day ? "" : " selected") + '>— pick a day</option>' +
@@ -2957,8 +2956,8 @@ function importPanel(){
 async function runImport(){
   const st = sfImportRows();
   const take = (st.rows || []).filter(function(r){ return r.take; });
-  const noWed = take.filter(function(r){ return r.wed && !r.wed.length; });
-  if(noWed.length) return formError(noWed[0].company + " is on 30 September. Tick Forum, EIS or off-site.");
+  const noWed = take.filter(function(r){ return r.isWed && !r.wed; });
+  if(noWed.length) return formError(noWed[0].company + " is on 30 September. Pick Forum, EIS, Both or Off-site.");
   const noDay = take.filter(function(r){ return !r.day; });
   if(!take.length) return formError("Tick at least one meeting.");
   if(noDay.length) return formError(noDay[0].company + " has no day set — 30 September is two tabs, so it has to be picked.");
@@ -2978,7 +2977,7 @@ async function runImport(){
       background: r.account ? "Salesforce account " + r.account : ""
     };
     await saveMeeting(m, true);
-    if(r.wed && r.wed.length){
+    if(r.wed){
       const wid = slug(r.company);
       const wt = state.targets[wid] || {};
       await saveTarget(wid, {wed: r.wed, name: wt.name || r.company});
@@ -2998,9 +2997,9 @@ function wedBoard(){
   if(!c.marked) return "";
   return '<div class="sec-head" style="margin-bottom:9px"><div>' +
     '<h2 style="font-size:17px">Before EURETINA opened</h2>' +
-    '<p>Wednesday 30 September ran two programmes at once. Marked on the company card \u2014 a company at ' +
-    'both counts once, under Both. Off-site is counted separately: it is a conversation on the Wednesday, ' +
-    'not attendance at either programme. Thursday to Sunday is EURETINA, so nothing here applies to those days.</p></div></div>' +
+    '<p>Wednesday 30 September ran two programmes at once. One mark per company on its card \u2014 Forum, ' +
+    'EIS, Both, or Off-site if we saw them away from either. Thursday to Sunday is EURETINA, so nothing ' +
+    'here applies to those days.</p></div></div>' +
     '<div class="statstrip">' +
       '<div class="stat"><div class="v">' + c.forum + '</div><div class="k">Forum only</div></div>' +
       '<div class="stat"><div class="v">' + c.eis + '</div><div class="k">EIS only</div></div>' +
@@ -4201,65 +4200,59 @@ function forumMeetingRow(m){
 
 /* ---------- company card ---------- */
 /* ---------- Wednesday, before the congress ----------
-   Two programmes run on 30 September and a company can be at either or both.
-   That is a property of the company, not of one meeting: a meeting sits on the
-   day it happened, but "who did we see before EURETINA opened" is the count
-   people actually ask for afterwards. Kept as a list so both can be true. */
-const WED_PROG = [{k:"forum", label:"Forum"}, {k:"eis", label:"EIS"}, {k:"offsite", label:"Off-site"}];
-/* the two programmes only. Off-site sits beside them rather than among them:
-   drinks across town on the Wednesday is worth recording, but it is not
-   attendance at either programme and must not be counted as if it were. */
-const WED_AT = ["forum", "eis"];
+   Two programmes run on 30 September. A company was at one, at the other, at
+   both, or we saw them away from either — four answers, one of them true, so
+   this is one value and not a set. Thursday to Sunday is EURETINA and fixed;
+   nothing here applies to those days. */
+const WED_PROG = [
+  {k:"forum",   label:"Forum"},
+  {k:"eis",     label:"EIS"},
+  {k:"both",    label:"Both"},
+  {k:"offsite", label:"Off-site"}
+];
+const WED_KEYS = WED_PROG.map(function(o){ return o.k; });
+/* a tab a card can actually sit on: Both and Off-site are neither */
+const WED_TAB = {forum:"forum", eis:"eis", both:"forum", offsite:"forum"};
 function wedOf(id){
   const w = (state.targets[id] || {}).wed;
-  return Array.isArray(w) ? w.filter(function(x){
-    return x === "forum" || x === "eis" || x === "offsite";
-  }) : [];
+  if(typeof w === "string") return WED_KEYS.indexOf(w) > -1 ? w : "";
+  /* an earlier version of this stored a list; read it back as the one answer
+     it was describing, so nothing marked before now is lost */
+  if(Array.isArray(w)){
+    const at = w.filter(function(x){ return x === "forum" || x === "eis"; });
+    if(at.length > 1) return "both";
+    if(at.length === 1) return at[0];
+    return w.indexOf("offsite") > -1 ? "offsite" : "";
+  }
+  return "";
 }
-function wedLabel(w){
-  const at = w.filter(function(x){ return WED_AT.indexOf(x) > -1; });
-  const off = w.indexOf("offsite") > -1;
-  let base;
-  if(!at.length) base = off ? "Off-site only" : "Not marked";
-  else if(at.length > 1) base = "At both";
-  else base = at[0] === "forum" ? "Forum only" : "EIS only";
-  if(!off) return base;
-  if(!at.length) return base;               /* already reads "Off-site only" */
-  /* "EIS only + off-site" contradicts itself; the "only" is about the two
-     programmes, so it goes once off-site is in the picture */
-  return base.replace(" only", "") + " + off-site";
+function wedLabel(v){
+  const o = WED_PROG.filter(function(x){ return x.k === v; })[0];
+  return o ? o.label : "Not marked";
 }
-function toggleWed(id, k, name){
-  const cur = wedOf(id);
-  const next = cur.indexOf(k) > -1 ? cur.filter(function(x){ return x !== k; }) : cur.concat([k]);
+function setWed(id, k, name){
   const t = state.targets[id] || {};
-  saveTarget(id, {wed: next, name: t.name || name || id});
+  saveTarget(id, {wed: wedOf(id) === k ? "" : k, name: t.name || name || id});
 }
 function wedRow(id, name){
-  const w = wedOf(id);
+  const v = wedOf(id);
   return RW('<div class="wedrow">' +
     '<span class="wedlab">Wed 30 Sept</span>' +
     WED_PROG.map(function(o){
-      const on = w.indexOf(o.k) > -1;
-      return '<button class="sbtn wed" data-wed="' + esc(id) + '|' + o.k + '" aria-pressed="' + on + '">' +
-        o.label + '</button>';
+      return '<button class="sbtn wed" data-wed="' + esc(id) + '|' + o.k +
+        '" aria-pressed="' + (v === o.k) + '">' + o.label + '</button>';
     }).join("") +
-    '<span class="wedhint">' + esc(wedLabel(w)) + '</span>' +
+    (v ? "" : '<span class="wedhint">Not marked</span>') +
   '</div>');
 }
-/* the roll-up the tracking question wants: forum only, EIS only, both */
 function wedCounts(){
-  let forum = 0, eis = 0, both = 0, offsite = 0, marked = 0;
+  const c = {forum:0, eis:0, both:0, offsite:0, marked:0};
   Object.keys(state.targets).forEach(function(k){
-    const w = wedOf(k);
-    if(!w.length) return;
-    marked++;
-    if(w.indexOf("offsite") > -1) offsite++;
-    const at = w.filter(function(x){ return WED_AT.indexOf(x) > -1; });
-    if(at.length > 1) both++;
-    else if(at.length === 1) (at[0] === "forum" ? forum++ : eis++);
+    const v = wedOf(k);
+    if(!v) return;
+    c[v]++; c.marked++;
   });
-  return {forum: forum, eis: eis, both: both, offsite: offsite, marked: marked};
+  return c;
 }
 
 /* The stand, on whichever card the company appears — Targets and the floor
@@ -5535,19 +5528,15 @@ document.addEventListener("click", e => {
   if(t.dataset.wed){
     const bits = t.dataset.wed.split("|");
     const nm = (state.targets[bits[0]] || {}).name || (CO_BY_ID[bits[0]] || {}).name || bits[0];
-    toggleWed(bits[0], bits[1], nm);
+    setWed(bits[0], bits[1], nm);
     return;
   }
   if(t.dataset.impwed && state.imp && state.imp.rows){
     const bits = t.dataset.impwed.split("|");
     const r = state.imp.rows[+bits[0]];
     if(r){
-      const cur = r.wed || [];
-      r.wed = cur.indexOf(bits[1]) > -1 ? cur.filter(function(x){ return x !== bits[1]; }) : cur.concat([bits[1]]);
-      const at = r.wed.filter(function(x){ return WED_AT.indexOf(x) > -1; });
-      /* off-site is not a tab, so a card with only that still shows under the
-         Forum day; the row says so rather than the day quietly changing */
-      r.day = at[0] || (r.wed.length ? "forum" : "");
+      r.wed = r.wed === bits[1] ? "" : bits[1];
+      r.day = r.wed ? WED_TAB[r.wed] : "";
       importPanel();
     }
     return;

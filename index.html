@@ -209,6 +209,15 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
 }
 @media print{ .mapbtn,.cart{display:none} .headnote{animation:none} }
 /* the floor reuses the Targets card wholesale; only the page furniture is new */
+.imptable{width:100%; border-collapse:collapse; font-size:12.5px}
+.imptable th{text-align:left; font-family:Archivo, system-ui, sans-serif; font-size:10.5px;
+  text-transform:uppercase; letter-spacing:.07em; color:var(--ink-3); padding:0 8px 6px 0; font-weight:600}
+.imptable td{padding:8px 8px 8px 0; border-top:1px solid var(--line); vertical-align:top; color:var(--ink)}
+.imptable tr.dupe{opacity:.62}
+.imptable select{font:inherit; font-size:12px; padding:3px 6px; border-radius:6px;
+  border:1px solid var(--line-2); background:var(--surface); color:var(--ink)}
+.impnote{display:block; font-size:11px; color:var(--ink-3); margin-top:2px}
+.impwho{display:block; font-size:12px; color:var(--ink-2); line-height:1.35}
 .exhall{font-family:Archivo, system-ui, sans-serif; font-size:11.5px; font-weight:600;
   letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3); margin:16px 0 7px}
 .exfilter{margin:14px 0 16px}
@@ -1169,6 +1178,17 @@ function watchDayHead(){
   }, {threshold: 0});
   HEAD_IO.observe(el);
 }
+document.addEventListener("change", function(e){
+  const t = e.target;
+  if(!t || !state.imp || !state.imp.rows) return;
+  if(t.hasAttribute && t.hasAttribute("data-imptake")){
+    const r = state.imp.rows[+t.getAttribute("data-imptake")];
+    if(r){ r.take = t.checked; importPanel(); }
+  } else if(t.hasAttribute && t.hasAttribute("data-impday")){
+    const r = state.imp.rows[+t.getAttribute("data-impday")];
+    if(r) r.day = t.value;
+  }
+});
 document.addEventListener("input", function(e){
   if(e.target && e.target.id === "exq"){
     state.exq = e.target.value;
@@ -2721,6 +2741,192 @@ function findBar(){
 }
 
 /* ---------- Executive overview ---------- */
+/* ---------- Salesforce calendar import ----------
+   The meetings are pulled out of Salesforce a wave at a time, so this reads
+   the export rather than anyone retyping it. It is deliberately a paste box:
+   the file never touches this repo, which is public, and the rows land in the
+   same store as every other meeting.
+
+   One row per contact in the export, so two people at one meeting arrive as
+   two rows; they are grouped back into one meeting per company per date, and
+   an identical row repeated is dropped. */
+function csvRows(text){
+  const out = []; let row = [], cell = "", q = false;
+  const t = String(text || "").replace(/\r\n?/g, "\n");
+  for(let i = 0; i < t.length; i++){
+    const c = t[i];
+    if(q){
+      if(c === '"'){ if(t[i+1] === '"'){ cell += '"'; i++; } else q = false; }
+      else cell += c;
+    } else if(c === '"') q = true;
+    else if(c === ","){ row.push(cell); cell = ""; }
+    else if(c === "\n"){ row.push(cell); out.push(row); row = []; cell = ""; }
+    else cell += c;
+  }
+  if(cell.length || row.length){ row.push(cell); out.push(row); }
+  return out.filter(function(r){ return r.some(function(x){ return String(x).trim(); }); });
+}
+const sfClean = function(v){ return String(v == null ? "" : v).replace(/ /g, " ").replace(/\s+/g, " ").trim(); };
+
+/* strip the legal tail so "Novaliq" finds "Novaliq GmbH" */
+const CO_TAIL = /\b(gmbh|ltd|limited|inc|llc|b\.?v|ag|s\.?a|srl|pte|pty|co|corp|corporation|company|pharmaceuticals?|pharma|therapeutics|biosciences?|bio|sciences?|technologies|technology|medical|group|holdings)\b/g;
+function coCore(n){
+  return String(n || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ")
+    .replace(CO_TAIL, " ").replace(/\s+/g, " ").trim();
+}
+/* our canonical name for a company the export calls something slightly else */
+function matchCompany(name){
+  const id = slug(name);
+  if(CO_BY_ID[id]) return {name: CO_BY_ID[id].name, how: "agenda"};
+  if(EX_BY_ID[id]) return {name: EX_BY_ID[id].n, how: "floor"};
+  if(state.targets[id] && state.targets[id].name) return {name: state.targets[id].name, how: "board"};
+  const core = coCore(name);
+  if(core){
+    const pool = COMPANIES.map(function(c){ return {n: c.name, how: "agenda"}; })
+      .concat(EXHIBITORS.map(function(r){ return {n: r.n, how: "floor"}; }));
+    for(let i = 0; i < pool.length; i++){
+      const pc = coCore(pool[i].n);
+      if(pc && (pc === core || pc.indexOf(core) === 0 || core.indexOf(pc) === 0))
+        return {name: pool[i].n, how: pool[i].how + " (matched on name)"};
+    }
+  }
+  return {name: sfClean(name), how: "new"};
+}
+/* the export dates a meeting but never times it, and 30 Sept is two tabs */
+function sfDay(dateStr, subject, company){
+  const m = String(dateStr || "").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(!m) return "";
+  const md = m[1] + "/" + m[2];
+  if(md === "10/1") return "thu1";
+  if(md === "10/2") return "fri2";
+  if(md === "10/3") return "sat3";
+  if(md === "10/4") return "sun4";
+  if(md !== "9/30") return "";
+  if(/futures forum/i.test(subject || "")) return "forum";
+  const co = CO_BY_ID[slug(company)];
+  if(co) return co.dayKey;                    /* their own stage says which day */
+  return "";                                   /* ask, rather than guess */
+}
+function sfParse(text){
+  const rows = csvRows(text);
+  if(!rows.length) return [];
+  const head = rows[0].map(sfClean);
+  const col = function(name){
+    for(let i = 0; i < head.length; i++) if(head[i].toLowerCase() === name) return i;
+    return -1;
+  };
+  const cSub = col("subject"), cCo = col("company / account"), cAcc = col("account id"),
+        cDate = col("date"), cOra = col("ora attendees"), cName = col("name"), cTitle = col("title");
+  if(cCo < 0 || cDate < 0) return [];
+  const group = {}, order = [];
+  rows.slice(1).forEach(function(r){
+    const co = sfClean(r[cCo]), date = sfClean(r[cDate]);
+    if(!co || !date) return;                   /* the export's footer rows */
+    const key = slug(co) + "|" + date;
+    if(!group[key]){
+      group[key] = {company: co, date: date, subject: sfClean(r[cSub]),
+                    account: cAcc > -1 ? sfClean(r[cAcc]) : "",
+                    ora: cOra > -1 ? sfClean(r[cOra]) : "", people: []};
+      order.push(key);
+    }
+    const g = group[key];
+    const sub = sfClean(r[cSub]);
+    if(sub.length > g.subject.length) g.subject = sub;   /* keep the fuller title */
+    if(cOra > -1 && sfClean(r[cOra])) g.ora = sfClean(r[cOra]);
+    const nm = cName > -1 ? sfClean(r[cName]) : "";
+    const ti = cTitle > -1 ? sfClean(r[cTitle]) : "";
+    if(nm && !g.people.some(function(p){ return p.name === nm; })) g.people.push({name: nm, title: ti});
+  });
+  return order.map(function(k){
+    const g = group[k];
+    const hit = matchCompany(g.company);
+    const day = sfDay(g.date, g.subject, hit.name);
+    const dup = allMeetings().filter(function(m){
+      return has(m.company) && slug(m.company) === slug(hit.name);
+    })[0];
+    return {key: k, raw: g.company, company: hit.name, how: hit.how, date: g.date, day: day,
+            people: g.people, ora: g.ora, subject: g.subject, account: g.account,
+            dup: dup ? dup.id : "", take: !dup};
+  });
+}
+function sfImportRows(){
+  if(!state.imp) state.imp = {text: "", rows: [], done: 0};
+  return state.imp;
+}
+function importPanel(){
+  const st = sfImportRows();
+  const rows = st.rows || [];
+  const body = !rows.length
+    ? '<label class="f">Paste the Salesforce export' +
+        '<textarea id="impcsv" style="min-height:190px;font-family:\'IBM Plex Mono\',monospace;font-size:12px" ' +
+        'placeholder="Subject,Company / Account,Account ID,Date,Ora Attendees,Sponsor Attendees,Name,Title,Related Campaign&#10;…"></textarea>' +
+        '<span class="hint">Headers included. One row per contact is fine — rows are grouped into one meeting per company per date.</span></label>'
+    : '<table class="imptable"><thead><tr><th></th><th>Company</th><th>Day</th><th>Who</th></tr></thead><tbody>' +
+      rows.map(function(r, i){
+        return '<tr' + (r.dup ? ' class="dupe"' : '') + '>' +
+          '<td><input type="checkbox" data-imptake="' + i + '"' + (r.take ? " checked" : "") + '></td>' +
+          '<td><b>' + esc(r.company) + '</b>' +
+            (slug(r.company) !== slug(r.raw) ? '<span class="impnote">export said "' + esc(r.raw) + '"</span>' : '') +
+            '<span class="impnote">' + esc(r.how) + (r.dup ? ' · already in the brief' : '') + '</span></td>' +
+          '<td><select data-impday="' + i + '">' +
+            '<option value=""' + (r.day ? "" : " selected") + '>— pick a day</option>' +
+            DAYS.map(function(d){
+              return '<option value="' + d.key + '"' + (r.day === d.key ? " selected" : "") + '>' +
+                esc(d.label) + '</option>';
+            }).join("") + '</select>' +
+            '<span class="impnote">' + esc(r.date) + '</span></td>' +
+          '<td>' + r.people.map(function(p){
+              return '<span class="impwho">' + esc(p.name) + (p.title ? ' — ' + esc(p.title) : '') + '</span>';
+            }).join("") +
+            (r.ora ? '<span class="impnote">Ora: ' + esc(r.ora) + '</span>' : '') + '</td>' +
+        '</tr>';
+      }).join("") + '</tbody></table>' +
+      '<p class="hint" style="margin-top:9px">The export carries no times, so these arrive without one and show as ' +
+        '<b>no time</b> until you set it. Nothing is overwritten — a company already in the brief is unticked by default.</p>';
+
+  document.getElementById("editor").innerHTML =
+  '<div class="sheet" role="dialog" aria-modal="true" aria-label="Import meetings">' +
+    '<header><div><h3>Import meetings from Salesforce</h3>' +
+      '<p class="dbfcopy" style="margin:2px 0 0">The export stays on your machine. Only the meetings you tick are saved.</p></div>' +
+      '<button class="btn sec sm" data-close="1">Close</button></header>' +
+    '<div class="dbfscroll"><div class="form">' + body + '</div></div>' +
+    '<footer><p class="formerr" id="formerr" hidden></p><span class="acts">' +
+      (rows.length
+        ? '<button class="btn sec" data-impback="1">Back</button>' +
+          '<button class="btn" data-impgo="1">Add ' + rows.filter(function(r){ return r.take; }).length + ' meetings</button>'
+        : '<button class="btn" data-impread="1">Read the export</button>') +
+    '</span></footer>' +
+  '</div>';
+  document.getElementById("editor").hidden = false;
+}
+async function runImport(){
+  const st = sfImportRows();
+  const take = (st.rows || []).filter(function(r){ return r.take; });
+  const noDay = take.filter(function(r){ return !r.day; });
+  if(!take.length) return formError("Tick at least one meeting.");
+  if(noDay.length) return formError(noDay[0].company + " has no day set — 30 September is two tabs, so it has to be picked.");
+  let n = 0;
+  for(let i = 0; i < take.length; i++){
+    const r = take[i];
+    const m = {
+      id: "m" + Date.now().toString(36) + i.toString(36),
+      day: r.day, time: "", duration: "30 min",
+      company: r.company,
+      format: /dinner|lunch|breakfast/i.test(r.subject) ? "meal" : "formal",
+      confirmed: true, priority: "standard",
+      topic: r.subject,
+      theirs: r.people.map(function(p){ return p.title ? p.name + ", " + p.title : p.name; }).join("\n"),
+      ours: r.ora,
+      background: r.account ? "Salesforce account " + r.account : ""
+    };
+    await saveMeeting(m, true);
+    n++;
+  }
+  state.imp = null;
+  closeEditor();
+  notice(n + (n === 1 ? " meeting" : " meetings") + " added from the export. They have no time on them yet.");
+}
+
 function viewExec(){
   const acc = accounts();
   const all = Object.keys(acc).map(k => acc[k]);
@@ -2862,6 +3068,9 @@ function viewExec(){
         '<div class="stat"><div class="v">' + piStats().newToUs + '</div><div class="k">New to Ora</div></div>' +
       '</div>'
     : "") +
+  RW('<div class="sec-head" style="margin-bottom:10px"><div>' +
+    '<p class="hint" style="margin:0">Meetings come out of Salesforce a wave at a time.</p></div>' +
+    '<button class="btn sec sm" data-import="1">Import from Salesforce</button></div>') +
   '<div class="sec-head"><div><h2 style="font-size:17px">Account ledger</h2>' +
     '<p>Every company we are working, with the three pipeline states kept separate. Tick <b>Open coming in</b> for accounts that arrived already carrying an open opportunity; <b>Surfaced here</b> fills itself from the toggle on each meeting card.</p></div>' +
     (unreviewed > 0 ? '<span class="chip ghost">' + unreviewed + ' Forum companies not yet reviewed</span>' : "") +
@@ -4962,7 +5171,7 @@ function closeEditor(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet]");
+  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback]");
   if(!t) return;
 
   if(t.dataset.accountsheet){ openAccountSheet(t.dataset.accountsheet); return; }
@@ -5177,6 +5386,15 @@ document.addEventListener("click", e => {
     openEditor(null, (DAYS[2] || DAYS[0]).key, nm);
     return;
   }
+  if(t.hasAttribute("data-import")){ state.imp = {text:"", rows:[], done:0}; importPanel(); return; }
+  if(t.hasAttribute("data-impread")){
+    const box = document.getElementById("impcsv");
+    const rows = sfParse(box ? box.value : "");
+    if(!rows.length) return formError("Nothing readable there \u2014 it needs the export's header row, with Company / Account and Date.");
+    state.imp.rows = rows; importPanel(); return;
+  }
+  if(t.hasAttribute("data-impback")){ state.imp.rows = []; importPanel(); return; }
+  if(t.hasAttribute("data-impgo")){ runImport(); return; }
   if(t.dataset.new){ openEditor(null, t.dataset.new); return; }
   if(t.dataset.edit){ openEditor(t.dataset.edit); return; }
   if(t.dataset.del){ state.confirm = {kind:"mtg", id:t.dataset.del}; render(); return; }

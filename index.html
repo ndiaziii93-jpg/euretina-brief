@@ -166,6 +166,21 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
 .pmeta .on{color:var(--gold); font-weight:600}
 .youtag{font-size:10px; font-weight:600; color:var(--ink-3); border:1px solid var(--line-2);
   border-radius:4px; padding:1px 4px; margin-left:5px; vertical-align:1px; letter-spacing:.03em}
+.venue{display:flex; gap:12px; align-items:flex-start; margin:0 0 12px; max-width:660px}
+.mapbtn{flex:none; width:38px; height:38px; border-radius:50%; display:grid; place-items:center;
+  color:var(--gold); background:var(--gold-fill); border:1px solid var(--gold-line);
+  text-decoration:none; transition:background .15s ease, color .15s ease, transform .15s ease}
+.mapbtn:hover{background:var(--gold); color:#fff; transform:translateY(-1px)}
+.mapbtn:focus-visible{outline:2px solid var(--gold); outline-offset:3px}
+@media (prefers-reduced-motion: reduce){ .mapbtn{transition:none} .mapbtn:hover{transform:none} }
+.vtext{min-width:0}
+.vname{font-family:Archivo, system-ui, sans-serif; font-size:13.5px; font-weight:600; color:var(--ink); margin:1px 0 0}
+.vroom{font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11px; font-weight:500;
+  color:var(--ink-2); background:var(--surface-3); border-radius:4px; padding:1px 5px; margin-left:5px; white-space:nowrap}
+.vaddr{font-size:12.5px; color:var(--ink-2); margin:2px 0 0}
+.vnote{font-size:12px; color:var(--ink-2); margin:4px 0 0; line-height:1.45}
+@media (max-width:640px){ .venue{gap:10px} .mapbtn{width:34px; height:34px} }
+@media print{ .mapbtn{display:none} }
 .acctrm{display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   margin-top:11px; padding-top:10px; border-top:1px solid var(--line)}
 .ppofoot{font-size:11px; color:var(--ink-3); margin:9px 0 0; padding-top:9px; border-top:1px solid var(--line); line-height:1.4}
@@ -1034,21 +1049,67 @@ const PROGRAMMES = {
     foot:"Transcribed from the published EIS programme outline. Session content subject to change."}
 };
 
+/* ---------- where each day actually happens ----------
+   The link is a Google Maps search on the venue's own name and street address,
+   not a pinned coordinate: it resolves on any device, hands off to the native
+   Maps app on a phone, and stays correct if a room moves inside the building.
+   Addresses confirmed against the venues' own listings, Sept 2026. */
+const PLACES = {
+  irs: {
+    name: "Imperial Riding School, Autograph Collection",
+    addr: "Ungargasse 60, 1030 Vienna",
+    note: "Landstra\u00dfe, the third district. Nearest rail is Rennweg, which runs direct to the airport and in to the centre \u2014 a different corner of the city from the congress, so budget the crossing on Wednesday.",
+    q: "Imperial Riding School Autograph Collection, Ungargasse 60, 1030 Vienna, Austria"
+  },
+  viecon: {
+    name: "VIECON \u2014 Vienna Congress & Convention Center",
+    addr: "Entrance A, Messeplatz 1, 1020 Vienna",
+    note: "Leopoldstadt, the second district. The U2 comes up at Messe-Prater directly in front of the entrance, which is the fastest way in on a congress morning.",
+    q: "VIECON Vienna Congress & Convention Center, Messeplatz 1, 1020 Vienna, Austria"
+  }
+};
+const mapHref = function(q){
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+};
+/* One pin, one address, one line on how to arrive. Sits under the day heading
+   on every tab, because "where is this" is a question people ask in a taxi. */
+function venueBlock(d){
+  const pl = PLACES[d.place];
+  if(!pl) return "";
+  const room = (d.venue && d.venue.indexOf("\u00b7") > -1)
+    ? d.venue.split("\u00b7").slice(1).join("\u00b7").trim() : "";
+  return '<div class="venue">' +
+    '<a class="mapbtn" href="' + esc(mapHref(pl.q)) + '" target="_blank" rel="noopener noreferrer" ' +
+      'title="Open in Google Maps" aria-label="Open ' + esc(pl.name) + ' in Google Maps">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">' +
+        '<path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z" fill="none" stroke="currentColor" ' +
+          'stroke-width="1.9" stroke-linejoin="round"/>' +
+        '<circle cx="12" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.9"/>' +
+      '</svg></a>' +
+    '<div class="vtext">' +
+      '<p class="vname">' + esc(pl.name) +
+        (room ? ' <span class="vroom">' + esc(room) + '</span>' : "") + '</p>' +
+      '<p class="vaddr">' + esc(pl.addr) + '</p>' +
+      '<p class="vnote">' + esc(pl.note) + '</p>' +
+    '</div>' +
+  '</div>';
+}
+
 const DAYS = [
   {key:"forum", short:"Forum", label:"Forum", long:"Wednesday 30 September", date:"30 Sep 2026",
    sub:"Wed 30 · Day 0", venue:"Imperial Riding School, Vienna",
-   event:"Ophthalmology Futures · Retina Forum", ec:"forum"},
+   event:"Ophthalmology Futures · Retina Forum", ec:"forum", place:"irs"},
   {key:"eis", short:"EIS", label:"EIS", long:"Wednesday 30 September", date:"30 Sep 2026",
    sub:"Wed 30 · Day 0", venue:"VIECON · Room 1 / Hall A",
-   event:"EURETINA Innovation Spotlight", ec:"eis"},
+   event:"EURETINA Innovation Spotlight", ec:"eis", place:"viecon"},
   {key:"thu1", short:"Thu", label:"Thu 1", long:"Thursday 1 October", date:"1 Oct 2026",
-   sub:"EURETINA Day 1", venue:"VIECON, Vienna", event:"EURETINA 2026 Congress", ec:"euretina"},
+   sub:"EURETINA Day 1", venue:"VIECON, Vienna", event:"EURETINA 2026 Congress", ec:"euretina", place:"viecon"},
   {key:"fri2", short:"Fri", label:"Fri 2", long:"Friday 2 October", date:"2 Oct 2026",
-   sub:"EURETINA Day 2", venue:"VIECON, Vienna", event:"EURETINA 2026 Congress", ec:"euretina"},
+   sub:"EURETINA Day 2", venue:"VIECON, Vienna", event:"EURETINA 2026 Congress", ec:"euretina", place:"viecon"},
   {key:"sat3", short:"Sat", label:"Sat 3", long:"Saturday 3 October", date:"3 Oct 2026",
-   sub:"EURETINA Day 3", venue:"VIECON, Vienna", event:"EURETINA 2026 Congress", ec:"euretina"},
+   sub:"EURETINA Day 3", venue:"VIECON, Vienna", event:"EURETINA 2026 Congress", ec:"euretina", place:"viecon"},
   {key:"sun4", short:"Sun", label:"Sun 4", long:"Sunday 4 October", date:"4 Oct 2026",
-   sub:"EURETINA Day 4", venue:"VIECON, Vienna", event:"EURETINA 2026 Congress", ec:"euretina"}
+   sub:"EURETINA Day 4", venue:"VIECON, Vienna", event:"EURETINA 2026 Congress", ec:"euretina", place:"viecon"}
 ];
 const eventTag = d => '<span class="eventtag ' + d.ec + '"><span class="sq"></span>' + esc(d.event) + '</span>';
 /* one tag per distinct event, however many strands the week has */
@@ -3442,6 +3503,7 @@ function viewProgramme(key){
     '<p class="eyebrow">Day 0 &middot; ' + esc(d.long) + ' &middot; ' + esc(d.venue) + '</p>' +
     '<h2>' + esc(P.heading) + '</h2>' +
     '<p style="margin-bottom:8px">' + esc(P.intro) + '</p>' +
+    venueBlock(d) +
     eventTag(d) +
     ' <button class="chip amber" style="cursor:pointer;border-style:solid" data-tab="' + (key === "eis" ? "forum" : "eis") + '">' +
       '&#9888; Runs against ' + esc(key === "eis" ? "the Retina Forum" : "EIS") + ' &mdash; open it</button>' +
@@ -3965,6 +4027,7 @@ function viewDay(key){
     '<div><p class="eyebrow">' + esc(d.sub) + ' &middot; ' + esc(d.venue) + '</p>' +
     '<h2>' + esc(d.long) + '</h2>' +
     '<p style="margin-bottom:8px">Collapsed by default: time, company, format, location and what a win looks like. Open a card for the full brief.</p>' +
+    venueBlock(d) +
     eventTag(d) + '</div>' +
     RW('<button class="btn" data-new="' + key + '">Add meeting</button>') + '</div>';
 

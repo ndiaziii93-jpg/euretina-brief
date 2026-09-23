@@ -21,7 +21,7 @@ html.booted{background:none}
 #splashbg{position:absolute;inset:0;background:#0A2337;transition:opacity .45s ease}
 #splashmark{position:relative;width:min(56vw,280px);height:auto;display:block;
   transform-origin:top left;will-change:transform;
-  transition:transform .62s cubic-bezier(.62,.04,.26,1)}
+  transition:transform .775s cubic-bezier(.62,.04,.26,1)}
 #splash.fade #splashbg{opacity:0}
 #splash.gone{display:none}
 @media (prefers-reduced-motion: reduce){#splashmark{transition:none}}
@@ -2079,8 +2079,8 @@ function dismissSplash(){
     setTimeout(function(){
       document.documentElement.classList.add("booted");
       sp.classList.add("fade");
-    }, 430);
-    setTimeout(done, 980);
+    }, 540);
+    setTimeout(done, 1090);
   };
   const go = function(){ requestAnimationFrame(function(){ requestAnimationFrame(fly); }); };
   if(document.fonts && document.fonts.ready && document.fonts.ready.then){

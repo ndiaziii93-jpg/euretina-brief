@@ -3235,10 +3235,11 @@ function viewExec(){
   '</div>' +
   '<p class="eyebrow grouplab">How the week was made up</p>' +
   '<div class="hero h3">' +
-    tile("", nPre, "Booked going in", "On the books before we landed") +
-    tile("", nHunted, "Found once here", "Tracked down on the ground") +
+    tile("", nPre, "Booked going in", "On the books before we landed", "origin:prebooked") +
+    tile("", nHunted, "Found once here", "Tracked down on the ground", "origin:hunted") +
     tile("sum", total, "Total meetings this week",
-      nUnset ? nUnset + " not yet marked either way" : "Booked going in plus found once here") +
+      nUnset ? nUnset + " not yet marked either way" : "Booked going in plus found once here",
+      "origin:all") +
   '</div>';
 
   /* the working numbers — progress against the same total, never a rival count */
@@ -3319,7 +3320,7 @@ function viewExec(){
     '<p class="eyebrow">Executive overview &middot; Vienna, 30 September &ndash; 4 October 2026</p>' +
     '<h2>The week in numbers</h2>' +
     '<p>What we found, how the week was made up, and where it stands. Every fraction is out of the same <b>' + total +
-    '</b> meetings, so no two figures on this page can disagree. Tap either opportunity tile to see the accounts behind the number.</p>' +
+    '</b> meetings, so no two figures on this page can disagree. Every tile opens what is behind its number.</p>' +
   '</div><div style="display:flex;gap:7px;flex-wrap:wrap">' + eventTags() + '</div></div>' +
   findBar() + hero + second + missList + shape + wedBoard() +
   (piStats().all
@@ -3855,12 +3856,16 @@ async function exportDebriefs(){
    working tiles, which open on what is still outstanding rather than what is done. */
 function tile(cls, v, k, s, sheet){
   const gap = !!sheet && sheet.indexOf("gap:") === 0;
+  const org = !!sheet && sheet.indexOf("origin:") === 0;
   const inner = '<div class="hv">' + esc(v) + '</div><div class="hk">' + esc(k) + '</div>' +
     '<div class="hs">' + s + '</div>' +
     (sheet ? '<div class="htmore">' +
-      (gap ? "See what is outstanding" : "See the accounts") + ' &#9656;</div>' : "");
+      (gap ? "See what is outstanding" : org ? "See the meetings" : "See the accounts") +
+      ' &#9656;</div>' : "");
   if(!sheet) return '<div class="htile ' + cls + '">' + inner + '</div>';
-  const attr = gap ? 'data-gapsheet="' + sheet.slice(4) + '"' : 'data-accountsheet="' + sheet + '"';
+  const attr = gap ? 'data-gapsheet="' + sheet.slice(4) + '"'
+             : org ? 'data-originsheet="' + sheet.slice(7) + '"'
+             : 'data-accountsheet="' + sheet + '"';
   return '<button class="htile ' + cls + '" ' + attr + '>' + inner + '</button>';
 }
 
@@ -4066,6 +4071,104 @@ function refreshGap(){
   const ed = document.getElementById("editor");
   const open = ed && !ed.hidden && ed.querySelector("[data-gapopen]");
   if(open) openGapSheet(open.getAttribute("data-gapopen"));
+}
+
+/* ---------- the meetings behind the week's shape ----------
+   The three numbers on "How the week was made up" count meetings, not
+   accounts, and a meeting is the thing you would go and correct — so this
+   lists them by company with the day and time, and says which bucket each one
+   is in when the tile does not already say it. Floor conversations with no
+   card are counted by those numbers too, so they appear here as well. */
+const ORIGIN_SHEET = {
+  prebooked: {title:"Booked going in",
+              note:"On the books before we landed"},
+  hunted:    {title:"Found once here",
+              note:"Tracked down on the ground"},
+  all:       {title:"Every meeting this week",
+              note:"Booked going in, found once here, and anything not yet marked either way"}
+};
+const ORIGIN_CHIP = {
+  prebooked: '<span class="chip">Booked going in</span>',
+  hunted:    '<span class="chip teal">Found once here</span>',
+  unset:     '<span class="chip amber">Not marked</span>'
+};
+function originGroups(kind){
+  const want = function(o){ return kind === "all" || o === kind; };
+  const map = {}, order = [];
+  const touch = function(id, name){
+    if(!map[id]){ map[id] = {id:id, name:String(name || id).trim(), items:[], floor:""}; order.push(id); }
+    return map[id];
+  };
+  const withCard = {};
+  Object.keys(state.meetings).forEach(function(k){
+    const m = state.meetings[k];
+    if(!has(m.company)) return;
+    withCard[slug(m.company)] = true;
+    const o = originOf(m) || "unset";
+    if(!want(o)) return;
+    touch(slug(m.company), m.company).items.push({m:m, o:o});
+  });
+  /* an account with no card still counts toward these numbers */
+  Object.keys(state.targets).forEach(function(id){
+    if(withCard[id]) return;
+    const o = accountOrigin(id);
+    if(!o && !accountHeld(id) && !floorDebriefed(id)) return;
+    const kindOf = o || "unset";
+    if(!want(kindOf)) return;
+    const t = state.targets[id] || {};
+    touch(id, t.name || (COMPANIES.filter(function(c){ return c.id === id; })[0] || {}).name || id).floor = kindOf;
+  });
+  return order.map(function(id){ return map[id]; })
+    .sort(function(a, b){ return a.name.localeCompare(b.name); });
+}
+function openOriginSheet(kind){
+  const cfg = ORIGIN_SHEET[kind];
+  if(!cfg) return;
+  const groups = originGroups(kind);
+  const n = groups.reduce(function(c, g){ return c + g.items.length + (g.floor ? 1 : 0); }, 0);
+  let body = "";
+  groups.forEach(function(g){
+    const cnt = g.items.length + (g.floor ? 1 : 0);
+    body += '<div class="dday acct">' + esc(g.name) +
+      (cnt > 1 ? '<span class="dcount">' + cnt + ' meetings</span>' : '') + '</div>';
+    if(g.floor){
+      body += '<div class="dentry">' +
+        '<div class="dentry-head"><span class="dentry-co" style="font-size:13.5px">' +
+          'Floor conversation &middot; no card</span>' +
+          (kind === "all" ? ORIGIN_CHIP[g.floor] || "" : "") + '</div>' +
+        '<p class="dhint" style="margin:6px 0 0">Counted from the account record rather than a meeting card.</p>' +
+        '<div style="margin-top:9px"><button class="btn sec sm" data-gotoacc="' + esc(g.id) + '">Open the account</button></div>' +
+      '</div>';
+    }
+    g.items.forEach(function(it){
+      const m = it.m;
+      const d = DAYS.filter(function(x){ return x.key === m.day; })[0] || {};
+      body += '<div class="dentry">' +
+        '<div class="dentry-head"><span class="dentry-co" style="font-size:13.5px">' +
+          esc(d.label || m.day || "Unscheduled") +
+          (has(m.time) ? ' &middot; ' + esc(t12(m.time)) : ' &middot; no time yet') + '</span>' +
+          (kind === "all" ? ORIGIN_CHIP[it.o] || "" : "") +
+          (wasHeld(m) ? '<span class="chip green">Held</span>' : "") +
+          boothBadge(m) + '</div>' +
+        (has(m.objective) ? '<p class="dbfmeta" style="margin-top:6px">' + esc(m.objective) + '</p>' : "") +
+        '<div style="margin-top:9px"><button class="btn sec sm" data-goto="' + esc(m.id) + '">Open the meeting</button></div>' +
+      '</div>';
+    });
+  });
+  document.getElementById("editor").innerHTML =
+  '<div class="sheet" role="dialog" aria-modal="true" aria-label="' + esc(cfg.title) + '">' +
+    '<header><div><h3>' + esc(cfg.title) + '</h3>' +
+      '<p class="dbfcopy" style="margin:2px 0 0">' + esc(cfg.note) + ' &middot; ' +
+        n + (n === 1 ? " meeting" : " meetings") + '</p></div>' +
+      '<button class="btn sec sm" data-close="1">Close</button></header>' +
+    '<div class="dbfscroll">' +
+      (n ? body
+         : '<div class="dbfnote"><p class="dbfcopy" style="margin:0">Nothing in this bucket yet. ' +
+           'Open a meeting and set <b>How we got it</b> to place it.</p></div>') +
+    '</div>' +
+    '<footer><span class="acts"><button class="btn" data-close="1">Done</button></span></footer>' +
+  '</div>';
+  document.getElementById("editor").hidden = false;
 }
 
 function openAccountSheet(kind){
@@ -5493,11 +5596,12 @@ function closeEditor(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
+  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
   if(!t) return;
 
   if(t.dataset.accountsheet){ openAccountSheet(t.dataset.accountsheet); return; }
   if(t.dataset.gapsheet){ openGapSheet(t.dataset.gapsheet); return; }
+  if(t.dataset.originsheet){ openOriginSheet(t.dataset.originsheet); return; }
   if(t.dataset.goto){ gotoMeeting(t.dataset.goto); return; }
   if(t.dataset.gotoacc){ gotoAccount(t.dataset.gotoacc); return; }
   if(t.dataset.gotopi){ gotoPI(t.dataset.gotopi); return; }

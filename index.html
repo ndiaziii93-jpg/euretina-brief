@@ -417,6 +417,12 @@ main{padding:26px 0 80px}
 }
 .tgutter::after{content:""; position:absolute; right:0; top:0; bottom:0; width:1px; background:var(--rail)}
 .tgutter .to{color:var(--ink-3); font-size:11px; display:block}
+/* A collapsed block is as tall as the meeting is long. Content stays at the
+   top like any calendar block; the space below it is the meeting still
+   running, and the end time in the gutter says so. */
+.tgutter .tend{position:absolute; left:0; right:14px; bottom:14px; color:var(--ink-3); font-size:11px}
+.trow[style*="--railpad"]:not(.is-open) .mcard,
+.trow[style*="--railpad"]:not(.is-open) .sessioncard{padding-bottom:var(--railpad)}
 .tbody{padding:8px 0 8px 18px; position:relative; min-width:0}
 .tbody::before{content:""; position:absolute; left:-4px; top:20px; width:9px; height:9px; border-radius:50%; background:var(--surface); border:2px solid var(--rail)}
 .trow.is-open .tbody::before{background:var(--gold); border-color:var(--gold)}
@@ -900,6 +906,7 @@ body{overflow-x:clip}
   .cgrid{grid-template-columns:1fr}
   .trow{grid-template-columns:68px 1fr}
   .tgutter{font-size:11px; padding:12px 9px 12px 0}
+  .tgutter .tend{right:9px; bottom:12px}
   .tbody{padding-left:13px}
   .stitle{font-size:15px}
 
@@ -4811,7 +4818,9 @@ function forumRow(s){
     '</div></div>';
   }
 
-  return '<div class="trow ' + cls + (open?" is-open":"") + '">' +
+  /* Programme sessions scale on the same rail. A 90-minute panel drawn shorter
+     than a 45-minute meeting beside it would be worse than no scale at all. */
+  return '<div class="trow ' + cls + (open?" is-open":"") + '"' + railStyle(dur(s), open) + '>' +
     '<div class="tgutter">' + t12(s.t) + '<span class="to">' + t12(s.e) + '</span></div>' +
     '<div class="tbody"><div class="sessioncard">' + head + body + '</div></div>' +
   '</div>';
@@ -4819,8 +4828,34 @@ function forumRow(s){
 
 const hhmm = function(t){ const H = Math.floor(t/60), M = t%60; return (H<10?"0":"") + H + ":" + (M<10?"0":"") + M; };
 
+/* ---------- how tall a block is ----------
+   A fifteen-minute coffee and a two-hour dinner used to be exactly the same
+   size on the rail, which is the one thing a timeline should never do. A
+   collapsed block now runs from its start time down to its end time.
+   Not to true scale, and deliberately so: a card cannot be shorter than the
+   words inside it, so fifteen minutes sets the floor, and four hours at true
+   scale would be a screen and a half of white. Everything longer than the
+   floor grows from it at a fixed rate, so the order and the rough ratios are
+   honest even though the absolute scale is compressed. Open a card and the
+   height is released — reading beats measuring once you are inside it. */
+const RAIL_BASE    = 15;    /* min: the shortest meeting anyone books */
+const RAIL_PER_MIN = 1.2;   /* px of block per minute above the base */
+/* Added BELOW the card's own content rather than competing with it as a
+   minimum height. A minimum loses to wrapped text: on a phone a 15-minute
+   card with a long objective grew taller than a 45-minute one and the scale
+   came out backwards. Content first, then the time it runs for. */
+function railPad(d){
+  return Math.round(Math.max(0, (d || 0) - RAIL_BASE) * RAIL_PER_MIN);
+}
+function railStyle(d, open){
+  const px = open ? 0 : railPad(d);
+  return px ? ' style="--railpad:' + px + 'px"' : "";
+}
+
 function gapRow(from, to, mins_){
-  return '<div class="trow openfloor">' +
+  /* Open time is on the same scale as everything else. An hour you could chase
+     someone in has to look like an hour, or the rail is only half honest. */
+  return '<div class="trow openfloor"' + railStyle(mins_, false) + '>' +
     '<div class="tgutter">' + t12(hhmm(from)) + '<span class="to">' + t12(hhmm(to)) + '</span></div>' +
     '<div class="tbody"><div class="sessioncard"><div class="sessionbtn" style="cursor:default">' +
       '<span><span class="stitle">Open</span>' +
@@ -4839,8 +4874,14 @@ function clashRow(a, b, over){
 }
 
 function forumMeetingRow(m){
-  return '<div class="trow meetingrow' + (state.openRows["mtg-" + m.id] ? " is-open" : "") + '">' +
-    '<div class="tgutter">' + esc(t12(m.time)) + '<span class="to">' + esc(m.duration || "30 min") + '</span></div>' +
+  const open = !!state.openRows["mtg-" + m.id];
+  const d    = durMins(m.duration);
+  /* the end time is what makes the empty half of a long block mean something */
+  const ends = has(m.time) ? t12(hhmm(mins(m.time) + d)) : "";
+  return '<div class="trow meetingrow' + (open ? " is-open" : "") + '"' + railStyle(d, open) + '>' +
+    '<div class="tgutter">' + esc(t12(m.time)) +
+      '<span class="to">' + esc(m.duration || "30 min") + '</span>' +
+      (!open && ends && d >= 45 ? '<span class="tend">' + esc(ends) + '</span>' : "") + '</div>' +
     '<div class="tbody">' + meetingCard(m, true) + '</div>' +
   '</div>';
 }

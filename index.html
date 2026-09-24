@@ -282,11 +282,17 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
   display:block; border-radius:6px; -webkit-tap-highlight-color:transparent}
 .markbtn:focus-visible{outline:2px solid var(--brass); outline-offset:4px}
 .wordmark{height:34px; width:auto; display:block}
-.logrow{display:flex; justify-content:space-between; align-items:baseline; gap:12px;
-  padding:9px 0; border-top:1px solid var(--line)}
+/* .dbfscroll carries no padding of its own, so these rows have to bring the
+   sheet's own 20px gutter with them or the text runs into the edge. */
+.logrow{display:flex; justify-content:space-between; align-items:baseline; gap:16px;
+  padding:11px 20px; border-top:1px solid var(--line)}
 .logrow:first-child{border-top:0}
-.logwhat{font-size:13px; color:var(--ink); line-height:1.4; min-width:0}
+.logwhat{font-size:13px; color:var(--ink); line-height:1.45; min-width:0}
 .logwho{flex:none; font-size:11px; color:var(--ink-3); white-space:nowrap}
+.logbar{display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+  padding:11px 20px; border-bottom:1px solid var(--line); background:var(--surface-2)}
+.logbar .dlab{margin:0 3px 0 0}
+.logmore{padding:11px 20px 15px; margin:0; color:var(--ink-3); font-size:11px}
 .oraglyph{height:13px; width:auto; vertical-align:-2px; margin-right:1px}
 .htile.lead .oraglyph, .masthead .oraglyph{filter:none}
 .brandtext{font-family:"Archivo"; font-weight:600; font-size:11px; letter-spacing:.17em; text-transform:uppercase; color:var(--navy-ink-2)}
@@ -919,6 +925,8 @@ body{overflow-x:clip}
   .sheet{width:100%; border-radius:0; display:flex; flex-direction:column; min-height:100dvh}
   .sheet .form{max-height:none; flex:1; padding:16px 14px}
   .sheet header,.sheet footer{padding:13px 14px}
+  .logrow,.logbar,.logmore{padding-left:14px; padding-right:14px}
+  .logrow{flex-direction:column; align-items:flex-start; gap:3px}
   .frow{grid-template-columns:1fr}
 }
 @media (max-width:359px){
@@ -1581,7 +1589,7 @@ let READONLY = !!SNAPSHOT;
 const RW = function(html){ return READONLY ? "" : html; };
 
 let db = null;
-let state = { targets:{}, meetings:{}, proposed:{}, outcomes:{}, debriefs:{}, mine:{}, pis:{}, meta:{}, notice:"", tab:"exec", openRows:{}, openCos:{}, headOpen:null, exq:"", origSheet:null, log:{}, editTeam:false, confirm:null, formerr:"", showSend:false, showDebriefs:false, q:"", qi:0, qhits:[] };
+let state = { targets:{}, meetings:{}, proposed:{}, outcomes:{}, debriefs:{}, mine:{}, pis:{}, meta:{}, notice:"", tab:"exec", openRows:{}, openCos:{}, headOpen:null, exq:"", origSheet:null, log:{}, logN:10, editTeam:false, confirm:null, formerr:"", showSend:false, showDebriefs:false, q:"", qi:0, qhits:[] };
 
 /* On the team copy there is no shared database, so a colleague's debrief has
    nowhere to go but their own browser. That is enough: they capture it in the
@@ -2409,20 +2417,45 @@ function agoOf(iso){
   const d = Math.round(h / 24);
   return d + (d === 1 ? " day ago" : " days ago");
 }
+const LOG_WINDOWS = [10, 20, 40];
 function openLogPanel(){
-  const rows = logList().slice(0, 40);
+  /* The log names who changed what. That is a record of the team's own
+     working, so it stays with the people who can change things. */
+  if(READONLY || !ME || SNAPSHOT) return;
+  const all = logList();
+  const n   = LOG_WINDOWS.indexOf(state.logN) > -1 ? state.logN : LOG_WINDOWS[0];
+  const rows = all.slice(0, n);
+
+  const bar = '<div class="logbar"><span class="dlab">Show</span>' +
+    LOG_WINDOWS.map(function(w){
+      return '<button class="dchip' + (w === n ? " on" : "") + '" data-logn="' + w + '"' +
+        (all.length <= (LOG_WINDOWS[LOG_WINDOWS.indexOf(w) - 1] || 0) ? ' disabled' : '') +
+        '>Last ' + w + '</button>';
+    }).join("") + '</div>';
+
   const body = rows.length
-    ? rows.map(function(r){
+    ? bar + rows.map(function(r){
         return '<div class="logrow"><span class="logwhat">' + esc(r.what) + '</span>' +
           '<span class="logwho">' + esc(r.who || "someone") + ' \u00b7 ' + esc(agoOf(r.at)) + '</span></div>';
-      }).join("")
+      }).join("") +
+      (all.length > rows.length
+        ? '<p class="logmore">' + (all.length - rows.length) + ' older ' +
+          (all.length - rows.length === 1 ? "change" : "changes") + ' not shown.</p>'
+        : "")
     : '<div class="dbfnote"><p class="dbfcopy" style="margin:0">Nothing has changed yet. ' +
       'Edits to meetings, flags and debriefs show up here as the team makes them.</p></div>';
+
+  const lead = rows.length
+    ? (all.length <= n
+        ? (all.length === 1 ? "The only change anyone has made so far"
+                            : "Every change anyone has made so far \u2014 " + all.length + " of them")
+        : "The last " + rows.length + " changes anyone made to the brief")
+    : "Every edit the team makes shows up here";
+
   document.getElementById("editor").innerHTML =
   '<div class="sheet" role="dialog" aria-modal="true" aria-label="What changed">' +
     '<header><div><h3>What changed</h3>' +
-      '<p class="dbfcopy" style="margin:2px 0 0">The last ' + rows.length +
-        (rows.length === 1 ? " change" : " changes") + ' anyone made to the brief</p></div>' +
+      '<p class="dbfcopy" style="margin:2px 0 0">' + esc(lead) + '</p></div>' +
       '<button class="btn sec sm" data-close="1">Close</button></header>' +
     '<div class="dbfscroll">' + body + '</div>' +
     '<footer><span class="acts"><button class="btn" data-close="1">Done</button></span></footer>' +
@@ -6121,7 +6154,7 @@ function closeEditor(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-brief],[data-briefsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
+  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-brief],[data-briefsave],[data-logn],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
   if(!t) return;
 
   if(t.dataset.accountsheet){ openAccountSheet(t.dataset.accountsheet); return; }
@@ -6186,6 +6219,7 @@ document.addEventListener("click", e => {
   }
   if(t.dataset.accept){ acceptProposal(t.dataset.accept); return; }
   if(t.hasAttribute("data-dismiss")){ state.notice = ""; render(); return; }
+  if(t.dataset.logn){ state.logN = +t.dataset.logn; openLogPanel(); return; }
   if(t.dataset.brief){ openBriefEditor(t.dataset.brief); return; }
   if(t.dataset.briefsave){ saveBriefForm(t.dataset.briefsave); return; }
   if(t.dataset.person){ openPersonEditor(t.dataset.person); return; }
@@ -6432,7 +6466,7 @@ document.addEventListener("input", function(e){
 });
 document.addEventListener("click", function(e){
   if(e.target && e.target.closest && e.target.closest("#markbtn")){
-    if(ME && !SNAPSHOT) openLogPanel();
+    openLogPanel();                       /* it decides for itself who may see it */
   }
 });
 document.addEventListener("keydown", e => { if(e.key === "Escape") closeEditor(); });

@@ -4234,6 +4234,77 @@ function gapGroups(kind){
   return Object.keys(out).map(function(k){ return out[k]; })
     .sort(function(a,b){ return a.name.localeCompare(b.name); });
 }
+/* The gap list answers what is missing. This answers what we agreed to do,
+   so "who are we sending a CDA to" is readable in one window instead of
+   opening every card on every day. */
+function actionGroups(){
+  const split = meetingSplit();
+  const out = {};
+  const touch = function(id, name){
+    return (out[id] = out[id] || {id:id, name:String(name || id).trim(), items:[]});
+  };
+  Object.keys(state.meetings).forEach(function(k){
+    const m = state.meetings[k];
+    if(has(m.company) && hasFollowUp(m)) touch(slug(m.company), m.company).items.push(m);
+  });
+  split.offCardIds.forEach(function(id){
+    const t  = state.targets[id] || {};
+    const nm = t.name || (COMPANIES.filter(function(c){ return c.id === id; })[0] || {}).name || id;
+    const st = floorStub(id, nm);
+    if(hasFollowUp(st)) touch(id, nm).items.push(st);
+  });
+  return Object.keys(out).map(function(k){ return out[k]; })
+    .sort(function(a, b){ return a.name.localeCompare(b.name); });
+}
+
+/* Every next step we have committed to, counted by kind — the roll-up that
+   makes the window worth opening when nothing is outstanding. */
+function actionTally(){
+  const n = {};
+  actionGroups().forEach(function(g){
+    g.items.forEach(function(m){
+      const v = followUp(m).next;
+      if(has(v)) n[v] = (n[v] || 0) + 1;
+    });
+  });
+  return DEBRIEF_NEXT.map(function(o){ return {label:o[1], n:n[o[1]] || 0}; })
+    .filter(function(x){ return x.n; });
+}
+
+function actionsDone(){
+  const groups = actionGroups();
+  if(!groups.length) return "";
+  const tally = actionTally();
+  return '<div class="dday acct" style="margin-top:6px">Agreed and owned' +
+      '<span class="dcount">' + groups.length +
+      (groups.length === 1 ? " account" : " accounts") + '</span></div>' +
+    (tally.length
+      ? '<div class="dentry" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
+          tally.map(function(x){
+            return '<span class="chip teal">' + esc(x.label) + ' &middot; ' + x.n + '</span>'; }).join("") +
+        '</div>'
+      : "") +
+    groups.map(function(g){
+      return '<div class="dentry">' +
+        '<div class="dentry-head"><span class="dentry-co">' + esc(g.name) + '</span>' +
+          g.items.map(function(m){
+            return '<span class="chip teal">' + esc(followUp(m).next) + '</span>'; }).join("") +
+        '</div>' +
+        g.items.map(function(m){
+          const fu = followUp(m);
+          const day = DAYS.filter(function(x){ return x.key === m.day; })[0] || {};
+          return '<p class="dbfmeta" style="margin-top:6px">' +
+            esc(fu.owner) + (has(fu.when) ? ' &middot; ' + esc(fu.when) : "") +
+            '<span style="color:var(--ink-3)"> &middot; ' +
+              esc(m.floor ? "Floor conversation" : (day.label || m.day || "Unscheduled")) + '</span></p>';
+        }).join("") +
+        '<div style="margin-top:9px"><button class="btn sec sm" data-' +
+          (g.items[0].floor ? 'gotoacc="' + esc(g.id) : 'goto="' + esc(g.items[0].id)) +
+          '">Open it</button></div>' +
+      '</div>';
+    }).join("");
+}
+
 function openGapSheet(kind){
   const cfg = GAPS[kind];
   if(!cfg) return;
@@ -4268,7 +4339,10 @@ function openGapSheet(kind){
         '<div class="dentry-head"><span class="dentry-co" style="font-size:13.5px">' +
           esc(day.label || m.day || "Unscheduled") + ' &middot; ' + esc(t12(m.time || "")) + '</span>' +
           (kind !== "held" && wasHeld(m) ? '<span class="chip green">Held</span>' : "") +
-          (why ? '<span class="chip amber">' + esc(why) + '</span>' : "") + '</div>' +
+          (why ? '<span class="chip amber">' + esc(why) + '</span>' : "") +
+          /* the step itself, next to the company it belongs to */
+          (kind === "actions" && has(fu.next) ? '<span class="chip teal">' + esc(fu.next) + '</span>' : "") +
+          '</div>' +
         (has(m.objective) ? '<p class="dbfmeta" style="margin-top:6px">' + esc(m.objective) + '</p>' : "") +
         (kind !== "debriefs" && has(d.notes)
           ? '<p class="dbfnotes" style="margin-top:6px">' + esc(d.notes) + '</p>' : "") +
@@ -4291,6 +4365,7 @@ function openGapSheet(kind){
     '<div class="dbfscroll">' +
       (n ? body
          : '<div class="dbfnote"><p class="dbfcopy" style="margin:0">' + esc(cfg.empty) + '</p></div>') +
+      (kind === "actions" ? actionsDone() : "") +
     '</div>' +
     '<footer><span class="acts"><button class="btn" data-close="1">Done</button></span></footer>' +
   '</div>';
@@ -5812,7 +5887,7 @@ function oppComponent(m){
    that one is a number leadership counts, this one is raw material for the
    Salesforce write-up we generate at the end of the week. */
 const DEBRIEF_OUTCOMES = [["progressed","Progressed"],["positive","Positive, no action"],["holding","Holding"],["nofit","Not a fit"],["noshow","No-show"]];
-const DEBRIEF_NEXT = [["proposal","Send proposal"],["capes","Send capabilities"],["call","Book a call"],["intro","Intro another team"],["site","Site / PI intro"],["none","Nothing needed"]];
+const DEBRIEF_NEXT = [["capes","Send capabilities"],["cda","Send a CDA"],["proposal","Send proposal"],["call","Book a call"],["intro","Intro another team"],["site","Site / PI intro"],["none","Nothing needed"]];
 const DEBRIEF_WHEN = [["week","This week"],["fortnight","Within 2 weeks"],["post","Post-congress"],["none","No date"]];
 function dlabel(arr, v){ const f = arr.filter(function(x){ return x[0] === v; })[0]; return f ? f[1] : ""; }
 /* The attendees were typed once, on the brief. Retyping them one-handed after the

@@ -1255,7 +1255,8 @@ function impReadFile(file){
   const nm = document.getElementById("impfilename");
   if(nm) nm.textContent = file.name;
   const take = function(text){
-    const rows = sfParse(text);
+    /* a calendar file announces itself; anything else is a table */
+    const rows = isCal(text) ? icsToRows(text) : sfParse(text);
     if(!rows.length){
       formError("That file could not be read \u2014 it needs the export's header row, with Company / Account and Date.");
       return;
@@ -3060,7 +3061,13 @@ function matchCompany(name){
   if(state.targets[id] && state.targets[id].name) return {name: state.targets[id].name, how: "board"};
   const core = coCore(name);
   if(core){
-    const pool = COMPANIES.map(function(c){ return {n: c.name, how: "agenda"}; })
+    /* the board itself belongs in the pool, and first: a company we are already
+       tracking is the likeliest match for a name that arrived slightly
+       different, and missing it is how "Breye" ends up beside "Breye
+       Therapeutics" as two accounts for one company */
+    const pool = Object.keys(state.targets).map(function(k){
+        return {n: (state.targets[k] || {}).name || k, how: "board"}; })
+      .concat(COMPANIES.map(function(c){ return {n: c.name, how: "agenda"}; }))
       .concat(EXHIBITORS.map(function(r){ return {n: r.n, how: "floor"}; }));
     for(let i = 0; i < pool.length; i++){
       const pc = coCore(pool[i].n);
@@ -3085,6 +3092,118 @@ function sfDay(dateStr, subject, company){
   if(co) return co.dayKey;                    /* their own stage says which day */
   return "";                                   /* ask, rather than guess */
 }
+/* ---------- an Outlook invite ----------
+   The invite Millie is already looking at in her inbox is structured data, so
+   reading it beats retyping it — and beats it by more the more people are on
+   it, because a pasted attendee name is exactly where "Benedikte El-Bandak
+   Lind" turns into something Salesforce will not match later. */
+function icsUnfold(text){
+  /* RFC 5545 wraps long lines and continues them with a leading space or tab */
+  return String(text || "").replace(/\r\n?/g, "\n").replace(/\n[ \t]/g, "");
+}
+function icsValue(line){
+  const cut = line.indexOf(":");
+  return cut < 0 ? "" : line.slice(cut + 1)
+    .replace(/\\n/gi, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";");
+}
+function icsParams(line){
+  const cut = line.indexOf(":");
+  const head = cut < 0 ? line : line.slice(0, cut);
+  const out = {};
+  head.split(";").slice(1).forEach(function(pp){
+    const eq = pp.indexOf("=");
+    if(eq > 0) out[pp.slice(0, eq).toUpperCase()] = pp.slice(eq + 1).replace(/^"|"$/g, "");
+  });
+  return out;
+}
+/* A stamp is either floating local time, or UTC with a Z. Vienna is what the
+   week is in, so a UTC stamp is converted there rather than to whatever zone
+   the laptop happens to be set to. */
+function icsWhen(line){
+  const v = icsValue(line).trim();
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/);
+  if(!m) return {date: "", time: ""};
+  if(!m[4]) return {date: (+m[2]) + "/" + (+m[3]) + "/" + m[1], time: ""};
+  if(m[7]){
+    try{
+      const dt = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)));
+      const f = new Intl.DateTimeFormat("en-GB", {timeZone: "Europe/Vienna", year: "numeric",
+        month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false});
+      const got = {};
+      f.formatToParts(dt).forEach(function(part){ got[part.type] = part.value; });
+      if(got.year) return {date: (+got.month) + "/" + (+got.day) + "/" + got.year,
+                           time: got.hour + ":" + got.minute};
+    }catch(e){}
+  }
+  return {date: (+m[2]) + "/" + (+m[3]) + "/" + m[1], time: m[4] + ":" + m[5]};
+}
+/* Whose meeting is it: the first attendee whose address is not one of ours */
+function icsCompanyFrom(people, organiser){
+  const ours = String(organiser || "").split("@")[1] || "";
+  const ext = people.filter(function(pp){
+    const dom = String(pp.email || "").split("@")[1] || "";
+    return dom && dom !== ours && !/(^|\.)ora\.com$/i.test(dom);
+  })[0];
+  if(!ext) return "";
+  const root = String(ext.email).split("@")[1].split(".")[0].replace(/[-_]/g, " ");
+  const hit = matchCompany(root);
+  /* only take a real match; otherwise the tidied domain is the honest guess */
+  return hit.how === "new" ? root.replace(/\b\w/g, function(c){ return c.toUpperCase(); }) : hit.name;
+}
+function icsParse(text){
+  const lines = icsUnfold(text).split("\n");
+  const out = [];
+  let ev = null;
+  lines.forEach(function(raw){
+    const line = raw.trim();
+    if(!line) return;
+    const key = (line.split(/[;:]/)[0] || "").toUpperCase();
+    if(key === "BEGIN" && /VEVENT/i.test(line)){
+      ev = {people: [], organiser: "", summary: "", loc: "", date: "", time: ""}; return;
+    }
+    if(!ev) return;
+    if(key === "END" && /VEVENT/i.test(line)){ if(ev.date) out.push(ev); ev = null; return; }
+    if(key === "SUMMARY") ev.summary = icsValue(line).replace(/\s+/g, " ").trim();
+    else if(key === "LOCATION") ev.loc = icsValue(line).replace(/\s+/g, " ").trim();
+    else if(key === "DTSTART"){ const w = icsWhen(line); ev.date = w.date; ev.time = w.time; }
+    else if(key === "ORGANIZER") ev.organiser = icsValue(line).replace(/^mailto:/i, "").trim();
+    else if(key === "ATTENDEE"){
+      const pr = icsParams(line);
+      const email = icsValue(line).replace(/^mailto:/i, "").trim();
+      const cn = (pr.CN || "").trim();
+      if(/^(RESOURCE|ROOM)$/i.test(pr.CUTYPE || "")) return;   /* meeting rooms are not people */
+      if(email || cn) ev.people.push({name: cn || email, email: email});
+    }
+  });
+  return out;
+}
+/* Hand the invite back in the shape the Salesforce export produces, so it meets
+   the same preview, the same name matching and the same duplicate check. */
+function icsToRows(text){
+  return icsParse(text).map(function(ev, i){
+    const guess = icsCompanyFrom(ev.people, ev.organiser);
+    const hit = matchCompany(guess || ev.summary || "");
+    const name = guess ? hit.name : (ev.summary || "Untitled invite");
+    const isWed = /^9\/30\//.test(ev.date);
+    const day = sfDay(ev.date, ev.summary, name);
+    const theirs = ev.people.filter(function(pp){
+      const dom = String(pp.email || "").split("@")[1] || "";
+      return !dom || !/(^|\.)ora\.com$/i.test(dom);
+    });
+    const dup = allMeetings().filter(function(m){
+      return has(m.company) && slug(m.company) === slug(name) &&
+             (!ev.time || !has(m.time) || m.time === ev.time);
+    })[0];
+    return {key: "ics" + i, raw: guess || ev.summary, company: name,
+            how: guess ? ("from the invite \u00b7 " + hit.how) : "from the invite \u00b7 name unclear",
+            date: ev.date, time: ev.time, day: day,
+            isWed: isWed, wed: isWed ? (day || "") : "",
+            people: theirs.map(function(pp){ return {name: pp.name, title: ""}; }),
+            ora: "", subject: ev.summary, account: "", loc: ev.loc,
+            dup: dup ? dup.id : "", take: !dup};
+  });
+}
+const isCal = function(t){ return /BEGIN:VCALENDAR/i.test(String(t || "").slice(0, 400)); };
 function sfParse(text){
   const rows = csvRows(text);
   if(!rows.length) return [];
@@ -3162,9 +3281,9 @@ function importPanel(){
   const rows = st.rows || [];
   const body = !rows.length
     ? '<div class="impdrop">' +
-        '<input type="file" id="impfile" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values">' +
+        '<input type="file" id="impfile" accept=".csv,.tsv,.txt,.ics,.ical,text/csv,text/calendar,text/tab-separated-values">' +
         '<label class="btn" for="impfile">Choose the export file\u2026</label>' +
-        '<span class="hint" id="impfilename">CSV or TSV, straight from Salesforce.</span>' +
+        '<span class="hint" id="impfilename">A Salesforce export, or an Outlook invite saved as .ics.</span>' +
       '</div>' +
       '<p class="hint impor">or paste it below</p>' +
       '<label class="f">Paste the Salesforce export' +
@@ -3245,6 +3364,7 @@ async function runImport(){
       format: /dinner|lunch|breakfast/i.test(r.subject) ? "meal" : "formal",
       confirmed: true, priority: "standard",
       topic: r.subject,
+      location: r.loc || "",
       theirs: r.people.map(function(p){ return p.title ? p.name + ", " + p.title : p.name; }).join("\n"),
       ours: r.ora,
       background: r.account ? "Salesforce account " + r.account : ""
@@ -6014,7 +6134,8 @@ document.addEventListener("click", e => {
   if(t.hasAttribute("data-import")){ state.imp = {text:"", rows:[], done:0}; importPanel(); return; }
   if(t.hasAttribute("data-impread")){
     const box = document.getElementById("impcsv");
-    const rows = sfParse(box ? box.value : "");
+    const txt = box ? box.value : "";
+    const rows = isCal(txt) ? icsToRows(txt) : sfParse(txt);
     if(!rows.length) return formError("Nothing readable there \u2014 it needs the export's header row, with Company / Account and Date.");
     state.imp.rows = rows; importPanel(); return;
   }

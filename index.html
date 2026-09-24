@@ -3469,6 +3469,33 @@ function viewExec(){
       "gap:debriefs") +
   '</div>' + debriefPanel(nWritten, total);
 
+  /* Every company on the schedule that nobody has researched. Briefs live in
+     Supabase, not in this file, so the only way this gap gets closed is if
+     somebody can see it — hence a standing list rather than a silent absence. */
+  const noBrief = (function(){
+    const seen = {}, out = [];
+    ms.forEach(function(m){
+      if(!has(m.company)) return;
+      const id = slug(m.company);
+      if(seen[id] || BRIEF_BY_ID[id]) return;
+      seen[id] = 1;
+      out.push(m.company.trim());
+    });
+    return out.sort(function(a, b){ return a.localeCompare(b); });
+  })();
+
+  const briefList = noBrief.length
+    ? '<div class="needtime" style="margin-bottom:22px"><p class="eyebrow">No intelligence brief yet &mdash; ' +
+        noBrief.length + (noBrief.length === 1 ? ' company' : ' companies') + '</p>' +
+      '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
+        noBrief.map(function(n){ return '<span class="chip amber">' + esc(n) + '</span>'; }).join("") +
+      '</div>' +
+      '<p class="dhint" style="margin:9px 0 0">These have a meeting but nothing on what they do, ' +
+        'where they stand, or where to start. Meetings added from a calendar invite or typed in by ' +
+        'hand arrive this way &mdash; a brief has to be researched and written separately.</p>' +
+      '</div>'
+    : "";
+
   const missList = nMissed
     ? '<div class="needtime" style="margin-bottom:22px"><p class="eyebrow">Planned, not yet reached &mdash; ' + nMissed +
         (nMissed === 1 ? ' company' : ' companies') + '</p><div style="display:flex;gap:5px;flex-wrap:wrap">' +
@@ -3532,7 +3559,7 @@ function viewExec(){
     '<p>What we found, how the week was made up, and where it stands. Every fraction is out of the same <b>' + total +
     '</b> meetings, so no two figures on this page can disagree. Every tile opens what is behind its number.</p>' +
   '</div><div style="display:flex;gap:7px;flex-wrap:wrap">' + eventTags() + '</div></div>' +
-  findBar() + hero + second + missList + shape + wedBoard() +
+  findBar() + hero + second + briefList + missList + shape + wedBoard() +
   (piStats().all
     ? '<div class="sec-head" style="margin-bottom:9px"><div><h2 style="font-size:17px">Investigators</h2>' +
       '<p>Reach into the people who run the studies, tracked separately from the companies.</p></div></div>' +
@@ -5330,6 +5357,13 @@ function meetingCard(m, inTimeline){
       '<div class="bsec start"><h5>Where to start</h5><p>' + esc(cbr.start) + '</p>' +
         '<p class="briefmore">Full brief on the Targets tab</p></div>' +
     '</div>');
+  }
+  /* A missing brief used to look exactly like a company nobody needed one for.
+     Say it out loud, or the gap stays invisible until somebody is in the room. */
+  else if(has(m.company)){
+    blocks.push('<div class="block">' + gap("No intelligence brief for this company yet") +
+      '<p class="dhint" style="margin:6px 0 0">Nothing on what they do or where to start. ' +
+      'Also listed on the Overview.</p></div>');
   }
   /* The stand is useful context and a hazard on the collapsed row: sitting
      next to the meeting's own location it reads as the place to go, and

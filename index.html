@@ -4132,6 +4132,27 @@ function originGroups(kind){
   return order.map(function(id){ return map[id]; })
     .sort(function(a, b){ return a.name.localeCompare(b.name); });
 }
+/* Redrawing the whole sheet to show one changed value threw the scroll back
+   to the top and relaid the row out under the finger. Nothing about the list
+   changes except two pressed states and a chip, so change those and leave
+   everything else alone. A row whose value no longer matches the bucket stays
+   put rather than vanishing mid-tap; the list is rebuilt next time it opens. */
+function syncOriginRow(attr, id, cur){
+  const key = "data-" + attr;
+  const btns = document.querySelectorAll("#editor [" + key + "]");
+  let group = null;
+  for(let i = 0; i < btns.length; i++){
+    const v = btns[i].getAttribute(key) || "";
+    const cut = v.indexOf("|");
+    if(cut < 0 || v.slice(0, cut) !== id) continue;
+    btns[i].setAttribute("aria-pressed", v.slice(cut + 1) === cur ? "true" : "false");
+    group = btns[i].parentNode && btns[i].parentNode.parentNode;
+  }
+  if(!group || !group.className || String(group.className).indexOf("kset") < 0) return;
+  const chip = group.querySelector(".chip");
+  if(cur && chip) group.removeChild(chip);
+  if(!cur && !chip) group.insertAdjacentHTML("beforeend", '<span class="chip amber">Not marked</span>');
+}
 function openOriginSheet(kind){
   const cfg = ORIGIN_SHEET[kind];
   if(!cfg) return;
@@ -5770,8 +5791,9 @@ document.addEventListener("click", e => {
     const id = parts[0];
     const nm = (state.targets[id] || {}).name ||
       (COMPANIES.filter(function(c){ return c.id === id; })[0] || {}).name || "";
-    saveAccountFlag(id, nm, {origin: accountOrigin(id) === parts[1] ? "" : parts[1]});
-    if(state.origSheet) openOriginSheet(state.origSheet);
+    const nextOrigin = accountOrigin(id) === parts[1] ? "" : parts[1];
+    saveAccountFlag(id, nm, {origin: nextOrigin});
+    if(state.origSheet) syncOriginRow("accorigin", id, nextOrigin);
     return;
   }
   if(t.dataset.accheld){
@@ -5785,8 +5807,9 @@ document.addEventListener("click", e => {
   if(t.dataset.origin){
     const parts = t.dataset.origin.split("|");
     const m = state.meetings[parts[0]] || state.proposed[parts[0]] || {};
-    saveSf(parts[0], {origin: originOf(m) === parts[1] ? "" : parts[1]});
-    if(state.origSheet) openOriginSheet(state.origSheet);
+    const next = originOf(m) === parts[1] ? "" : parts[1];
+    saveSf(parts[0], {origin: next});
+    if(state.origSheet) syncOriginRow("origin", parts[0], next);
     return;
   }
   if(t.dataset.held){

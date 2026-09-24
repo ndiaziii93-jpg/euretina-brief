@@ -248,6 +248,8 @@ input,select,textarea{font-family:inherit; font-size:inherit; color:inherit}
   text-transform:uppercase; letter-spacing:.07em; color:var(--ink-3)}
 .sbtn.wed[aria-pressed="true"]{background:var(--teal-fill); color:var(--teal); border-color:var(--teal-line); font-weight:600}
 .wedhint{font-size:11.5px; color:var(--ink-2)}
+.kset{display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:9px}
+.kset .kindsel{flex:none}
 .impdrop{display:flex; align-items:center; gap:11px; flex-wrap:wrap;
   padding:15px; border:1px dashed var(--line-2); border-radius:10px; background:var(--surface-2)}
 .impdrop input[type=file]{position:absolute; width:1px; height:1px; opacity:0; pointer-events:none}
@@ -1565,7 +1567,7 @@ let READONLY = !!SNAPSHOT;
 const RW = function(html){ return READONLY ? "" : html; };
 
 let db = null;
-let state = { targets:{}, meetings:{}, proposed:{}, outcomes:{}, debriefs:{}, mine:{}, pis:{}, meta:{}, notice:"", tab:"exec", openRows:{}, openCos:{}, headOpen:null, exq:"", editTeam:false, confirm:null, formerr:"", showSend:false, showDebriefs:false, q:"", qi:0, qhits:[] };
+let state = { targets:{}, meetings:{}, proposed:{}, outcomes:{}, debriefs:{}, mine:{}, pis:{}, meta:{}, notice:"", tab:"exec", openRows:{}, openCos:{}, headOpen:null, exq:"", origSheet:null, editTeam:false, confirm:null, formerr:"", showSend:false, showDebriefs:false, q:"", qi:0, qhits:[] };
 
 /* On the team copy there is no shared database, so a colleague's debrief has
    nowhere to go but their own browser. That is enough: they capture it in the
@@ -4087,11 +4089,20 @@ const ORIGIN_SHEET = {
   all:       {title:"Every meeting this week",
               note:"Booked going in, found once here, and anything not yet marked either way"}
 };
-const ORIGIN_CHIP = {
-  prebooked: '<span class="chip">Booked going in</span>',
-  hunted:    '<span class="chip teal">Found once here</span>',
-  unset:     '<span class="chip amber">Not marked</span>'
-};
+/* Set it from here. The whole point of the list is that you are looking at
+   every meeting at once, so making someone open each card to flip one value
+   would be the long way round the thing they came here to avoid. */
+function originToggle(attr, id, cur){
+  return '<div class="kset">' +
+    '<div class="kindsel" role="group" aria-label="How this meeting came about">' +
+      ORIGINS.map(function(x){
+        return '<button class="kbtn" data-' + attr + '="' + esc(id) + '|' + x[0] + '" ' +
+          'aria-pressed="' + (cur === x[0]) + '">' + x[1] + '</button>';
+      }).join("") +
+    '</div>' +
+    (cur ? "" : '<span class="chip amber">Not marked</span>') +
+  '</div>';
+}
 function originGroups(kind){
   const want = function(o){ return kind === "all" || o === kind; };
   const map = {}, order = [];
@@ -4124,6 +4135,9 @@ function originGroups(kind){
 function openOriginSheet(kind){
   const cfg = ORIGIN_SHEET[kind];
   if(!cfg) return;
+  /* remembered so that flipping a meeting redraws this list rather than
+     leaving a row showing the value it no longer has */
+  state.origSheet = kind;
   const groups = originGroups(kind);
   const n = groups.reduce(function(c, g){ return c + g.items.length + (g.floor ? 1 : 0); }, 0);
   let body = "";
@@ -4135,8 +4149,9 @@ function openOriginSheet(kind){
       body += '<div class="dentry">' +
         '<div class="dentry-head"><span class="dentry-co" style="font-size:13.5px">' +
           'Floor conversation &middot; no card</span>' +
-          (kind === "all" ? ORIGIN_CHIP[g.floor] || "" : "") + '</div>' +
+          '</div>' +
         '<p class="dhint" style="margin:6px 0 0">Counted from the account record rather than a meeting card.</p>' +
+        RW(originToggle("accorigin", g.id, accountOrigin(g.id))) +
         '<div style="margin-top:9px"><button class="btn sec sm" data-gotoacc="' + esc(g.id) + '">Open the account</button></div>' +
       '</div>';
     }
@@ -4147,10 +4162,10 @@ function openOriginSheet(kind){
         '<div class="dentry-head"><span class="dentry-co" style="font-size:13.5px">' +
           esc(d.label || m.day || "Unscheduled") +
           (has(m.time) ? ' &middot; ' + esc(t12(m.time)) : ' &middot; no time yet') + '</span>' +
-          (kind === "all" ? ORIGIN_CHIP[it.o] || "" : "") +
           (wasHeld(m) ? '<span class="chip green">Held</span>' : "") +
           boothBadge(m) + '</div>' +
         (has(m.objective) ? '<p class="dbfmeta" style="margin-top:6px">' + esc(m.objective) + '</p>' : "") +
+        RW(originToggle("origin", m.id, it.o === "unset" ? "" : it.o)) +
         '<div style="margin-top:9px"><button class="btn sec sm" data-goto="' + esc(m.id) + '">Open the meeting</button></div>' +
       '</div>';
     });
@@ -5592,6 +5607,7 @@ function closeEditor(){
   const e = document.getElementById("editor"); e.hidden = true; e.innerHTML = "";
   if(EDITING) trackEditing(null);
   state.showDebriefs = false; state.showSend = false;
+  state.origSheet = null;
 }
 
 /* ---------- events ---------- */
@@ -5755,6 +5771,7 @@ document.addEventListener("click", e => {
     const nm = (state.targets[id] || {}).name ||
       (COMPANIES.filter(function(c){ return c.id === id; })[0] || {}).name || "";
     saveAccountFlag(id, nm, {origin: accountOrigin(id) === parts[1] ? "" : parts[1]});
+    if(state.origSheet) openOriginSheet(state.origSheet);
     return;
   }
   if(t.dataset.accheld){
@@ -5769,6 +5786,7 @@ document.addEventListener("click", e => {
     const parts = t.dataset.origin.split("|");
     const m = state.meetings[parts[0]] || state.proposed[parts[0]] || {};
     saveSf(parts[0], {origin: originOf(m) === parts[1] ? "" : parts[1]});
+    if(state.origSheet) openOriginSheet(state.origSheet);
     return;
   }
   if(t.dataset.held){

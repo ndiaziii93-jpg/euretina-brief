@@ -3063,8 +3063,8 @@ function matchCompany(name){
   if(core){
     /* the board itself belongs in the pool, and first: a company we are already
        tracking is the likeliest match for a name that arrived slightly
-       different, and missing it is how "Breye" ends up beside "Breye
-       Therapeutics" as two accounts for one company */
+       different, and missing it is how a bare domain name ends up beside the
+       full company name as two accounts for one company */
     const pool = Object.keys(state.targets).map(function(k){
         return {n: (state.targets[k] || {}).name || k, how: "board"}; })
       .concat(COMPANIES.map(function(c){ return {n: c.name, how: "agenda"}; }))
@@ -3095,8 +3095,8 @@ function sfDay(dateStr, subject, company){
 /* ---------- an Outlook invite ----------
    The invite Millie is already looking at in her inbox is structured data, so
    reading it beats retyping it — and beats it by more the more people are on
-   it, because a pasted attendee name is exactly where "Benedikte El-Bandak
-   Lind" turns into something Salesforce will not match later. */
+   it, because a hand-copied attendee name is exactly where a hyphenated or
+   accented one turns into something Salesforce will not match later. */
 function icsUnfold(text){
   /* RFC 5545 wraps long lines and continues them with a leading space or tab */
   return String(text || "").replace(/\r\n?/g, "\n").replace(/\n[ \t]/g, "");

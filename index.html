@@ -619,6 +619,9 @@ label.f .hint{font-size:10.5px; color:var(--ink-3)}
 .lform{display:grid; gap:12px; margin-top:14px}
 .lform label.f input{font-size:16px; padding:10px 11px}
 .lform .btn{padding:11px 16px; font-size:14px}
+button.chip{appearance:none; cursor:pointer; font-family:"Archivo"; line-height:inherit}
+button.chip:hover{filter:brightness(.96)}
+button.chip:active{transform:translateY(1px)}
 .linkbtn{appearance:none; background:none; border:0; padding:0; color:var(--navy-ink); text-decoration:underline;
   text-underline-offset:2px; font:inherit; cursor:pointer}
 .editwarn.dup{background:var(--surface-3); color:var(--ink-2)}
@@ -2360,6 +2363,22 @@ async function saveTarget(id, patch){
   state.targets[id] = next; render();
   if(db){ try{ await db.doc("targets/" + id).set(next); }catch(e){ notice("Target flags are owner-only while the schedule is locked."); } }
 }
+/* Briefs stream in from the database like everything else, so writing one here
+   reaches the whole team the moment it is saved. This is the only way a brief
+   gets written without a round trip through SQL and a second pair of hands. */
+async function saveBrief(rec){
+  const id = slug(rec.name);
+  if(!id) return;
+  const fresh = !BRIEF_BY_ID[id];
+  BRIEFS[rec.name] = rec; BRIEF_BY_ID[id] = rec;      /* show it immediately */
+  render();
+  if(!db) return;
+  try{
+    await db.doc("briefs/" + id).set(rec);
+    logChange(rec.name + (fresh ? " \u2014 brief written" : " \u2014 brief updated"));
+  }catch(e){ notice("That brief could not be saved. Ask Berto to check your access."); }
+}
+
 /* ---------- what changed, and who ----------
    Running the command centre means coming back from a session to a board that
    moved while you were in it. Every write already passes through a handful of
@@ -3488,11 +3507,15 @@ function viewExec(){
     ? '<div class="needtime" style="margin-bottom:22px"><p class="eyebrow">No intelligence brief yet &mdash; ' +
         noBrief.length + (noBrief.length === 1 ? ' company' : ' companies') + '</p>' +
       '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
-        noBrief.map(function(n){ return '<span class="chip amber">' + esc(n) + '</span>'; }).join("") +
+        noBrief.map(function(n){
+          return READONLY
+            ? '<span class="chip amber">' + esc(n) + '</span>'
+            : '<button class="chip amber" data-brief="' + esc(n) + '">' + esc(n) + '</button>'; }).join("") +
       '</div>' +
       '<p class="dhint" style="margin:9px 0 0">These have a meeting but nothing on what they do, ' +
         'where they stand, or where to start. Meetings added from a calendar invite or typed in by ' +
-        'hand arrive this way &mdash; a brief has to be researched and written separately.</p>' +
+        'hand arrive this way.' + RW(' Tap a name to write one \u2014 it reaches everyone straight away.') +
+      '</p>' +
       '</div>'
     : "";
 
@@ -4555,6 +4578,74 @@ function teamPanel(){
     body + '</div>';
 }
 
+/* One field per question the card asks, in the order the card shows them, so
+   what you type lands where you expect. Nothing is required except the first
+   line: a half-written brief beats no brief at all on the Thursday. */
+const BRIEF_FIELDS = [
+  {k:"what",  label:"What they do",
+   hint:"The company in a few sentences \u2014 the technology, the indication, the proposition."},
+  {k:"stage", label:"Where they stand",
+   hint:"Programmes, phases, trial names, approvals, partnerships. Dates where you have them."},
+  {k:"ora",   label:"Why it matters to us",
+   hint:"The opening for Ora. What kind of work this is, and why they would need us."},
+  {k:"start", label:"Where to start",
+   hint:"The question to open with \u2014 something they cannot answer from a brochure."}
+];
+
+function openBriefEditor(name){
+  const cur = BRIEF_BY_ID[slug(name)] || {};
+  const co  = cur.name || name;
+  const fresh = !cur.name;
+  document.getElementById("editor").innerHTML =
+  '<div class="sheet" role="dialog" aria-modal="true" aria-label="Company brief">' +
+    '<header><div><h3>' + (fresh ? "Write the brief" : "Edit the brief") + '</h3>' +
+      '<p class="dbfcopy" style="margin:2px 0 0">' + esc(co) +
+        ' \u00b7 everyone sees this the moment you save</p></div>' +
+      '<button class="btn sec sm" data-close="1">Close</button></header>' +
+    '<form class="form" id="bform">' +
+      '<fieldset><legend>The brief</legend>' +
+        BRIEF_FIELDS.map(function(f){
+          return '<div class="frow"><label class="f">' + esc(f.label) +
+            '<textarea name="' + f.k + '" rows="4">' + esc(cur[f.k] || "") + '</textarea>' +
+            '<span class="hint">' + esc(f.hint) + '</span></label></div>';
+        }).join("") +
+      '</fieldset>' +
+      '<fieldset><legend>How much of this is verified</legend>' +
+        '<div class="frow"><label class="f">Confidence' +
+          '<select name="c">' + Object.keys(CONF).map(function(k){
+            return '<option value="' + k + '"' +
+              ((cur.c || "medium") === k ? " selected" : "") + '>' +
+              esc(CONF[k].label) + ' \u2014 ' + esc(CONF[k].note) + '</option>';
+          }).join("") + '</select>' +
+          '<span class="hint">This shows on the card. Say the record is thin when it is ' +
+            '\u2014 a thin brief read as a firm one is worse than no brief.</span>' +
+        '</label></div>' +
+      '</fieldset>' +
+    '</form>' +
+    '<footer><p class="formerr" id="formerr" hidden></p>' +
+      '<span style="display:flex;gap:10px;margin-left:auto">' +
+        '<button class="btn sec" data-close="1">Cancel</button>' +
+        '<button class="btn" data-briefsave="' + esc(co) + '">Save</button></span></footer>' +
+  '</div>';
+  document.getElementById("editor").hidden = false;
+}
+
+async function saveBriefForm(name){
+  const f = document.getElementById("bform");
+  if(!f) return;
+  const fd = new FormData(f);
+  const rec = {name: name, c: String(fd.get("c") || "medium")};
+  let any = false;
+  BRIEF_FIELDS.forEach(function(x){
+    const v = String(fd.get(x.k) || "").trim();
+    rec[x.k] = v;
+    if(v) any = true;
+  });
+  if(!any) return formError("Fill in at least one section \u2014 an empty brief saves nothing.");
+  await saveBrief(rec);
+  closeEditor();
+}
+
 function openPersonEditor(id){
   const p = id === "new" ? {days:[]} : (person(id) || {days:[]});
   const days = Array.isArray(p.days) ? p.days : [];
@@ -4855,7 +4946,18 @@ function companyCard(c){
       '<div class="bsec"><h5>Where they are</h5><p>' + esc(br.stage) + '</p></div>' +
       '<div class="bsec ora"><h5>Why they matter to Ora</h5><p>' + esc(br.ora) + '</p></div>' +
       '<div class="bsec start"><h5>Where to start</h5><p>' + esc(br.start) + '</p></div>' +
-    '</div>' : "";
+      RW('<p class="briefmore" style="grid-column:1/-1"><button class="linkbtn" data-brief="' +
+        esc(c.name) + '">Edit this brief</button></p>') +
+    '</div>'
+    /* No brief is a gap somebody can close from here, not a blank space — but
+       only call it a gap where it is one. Most of the exhibitor list will never
+       need a brief, and 60 amber flags would teach everyone to ignore them. */
+    : (flagged || accountMeetings(c.id).length
+        ? '<div class="block" style="margin:0">' + gap("No intelligence brief yet") +
+          RW('<p style="margin:8px 0 0"><button class="btn sec sm" data-brief="' + esc(c.name) +
+            '">Write the brief</button></p>') + '</div>'
+        : RW('<p class="briefmore" style="margin:0"><button class="linkbtn" data-brief="' +
+            esc(c.name) + '">Write a brief for them</button></p>'));
 
   const body = '<div class="cbody">' +
     '<dl class="kv">' +
@@ -4992,7 +5094,14 @@ function offCard(a){
       '<div class="bsec"><h5>Where they are</h5><p>' + esc(br.stage) + '</p></div>' +
       '<div class="bsec ora"><h5>Why they matter to Ora</h5><p>' + esc(br.ora) + '</p></div>' +
       '<div class="bsec start"><h5>Where to start</h5><p>' + esc(br.start) + '</p></div>' +
-    '</div>' : '<div class="rosterhint">No brief written for this company yet.</div>';
+      RW('<p class="briefmore" style="grid-column:1/-1"><button class="linkbtn" data-brief="' +
+        esc(a.name) + '">Edit this brief</button></p>') +
+    '</div>'
+    /* These are the accounts that arrived from a calendar invite, so this is
+       where a missing brief is most likely and most worth closing from. */
+    : '<div class="block" style="margin:0">' + gap("No intelligence brief yet") +
+      RW('<p style="margin:8px 0 0"><button class="btn sec sm" data-brief="' + esc(a.name) +
+        '">Write the brief</button></p>') + '</div>';
 
   return '<div class="' + cls + '">' + head + '<div class="cbody">' +
     (conf ? '<div class="confline"><span class="chip ' + conf.cls + '">' + conf.label + '</span><span>' + conf.note + '</span></div>' : "") +
@@ -5355,7 +5464,9 @@ function meetingCard(m, inTimeline){
     blocks.push('<div class="brief compact">' +
       '<div class="bsec"><h5>What they do</h5><p>' + esc(cbr.what) + '</p></div>' +
       '<div class="bsec start"><h5>Where to start</h5><p>' + esc(cbr.start) + '</p>' +
-        '<p class="briefmore">Full brief on the Targets tab</p></div>' +
+        '<p class="briefmore">Full brief on the Targets tab' +
+          RW(' &middot; <button class="linkbtn" data-brief="' + esc(m.company) + '">Edit</button>') +
+        '</p></div>' +
     '</div>');
   }
   /* A missing brief used to look exactly like a company nobody needed one for.
@@ -5363,7 +5474,9 @@ function meetingCard(m, inTimeline){
   else if(has(m.company)){
     blocks.push('<div class="block">' + gap("No intelligence brief for this company yet") +
       '<p class="dhint" style="margin:6px 0 0">Nothing on what they do or where to start. ' +
-      'Also listed on the Overview.</p></div>');
+      'Also listed on the Overview.</p>' +
+      RW('<p style="margin:8px 0 0"><button class="btn sec sm" data-brief="' + esc(m.company) +
+        '">Write the brief</button></p>') + '</div>');
   }
   /* The stand is useful context and a hazard on the collapsed row: sitting
      next to the meeting's own location it reads as the place to go, and
@@ -5933,7 +6046,7 @@ function closeEditor(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
+  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-brief],[data-briefsave],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
   if(!t) return;
 
   if(t.dataset.accountsheet){ openAccountSheet(t.dataset.accountsheet); return; }
@@ -5998,6 +6111,8 @@ document.addEventListener("click", e => {
   }
   if(t.dataset.accept){ acceptProposal(t.dataset.accept); return; }
   if(t.hasAttribute("data-dismiss")){ state.notice = ""; render(); return; }
+  if(t.dataset.brief){ openBriefEditor(t.dataset.brief); return; }
+  if(t.dataset.briefsave){ saveBriefForm(t.dataset.briefsave); return; }
   if(t.dataset.person){ openPersonEditor(t.dataset.person); return; }
   if(t.dataset.persondel){ state.confirm = {kind:"person", id:t.dataset.persondel}; render(); return; }
   if(t.hasAttribute("data-cancel")){ state.confirm = null; render(); return; }

@@ -4391,8 +4391,7 @@ function openOriginSheet(kind){
         '<div class="dentry-head"><span class="dentry-co" style="font-size:13.5px">' +
           esc(d.label || m.day || "Unscheduled") +
           (has(m.time) ? ' &middot; ' + esc(t12(m.time)) : ' &middot; no time yet') + '</span>' +
-          (wasHeld(m) ? '<span class="chip green">Held</span>' : "") +
-          boothBadge(m) + '</div>' +
+          (wasHeld(m) ? '<span class="chip green">Held</span>' : "") + '</div>' +
         (has(m.objective) ? '<p class="dbfmeta" style="margin-top:6px">' + esc(m.objective) + '</p>' : "") +
         RW(originToggle("origin", m.id, it.o === "unset" ? "" : it.o)) +
         '<div style="margin-top:9px"><button class="btn sec sm" data-goto="' + esc(m.id) + '">Open the meeting</button></div>' +
@@ -5273,16 +5272,6 @@ const durMins = s => { const n = String(s||"").match(/(\d+)\s*h/i), q = String(s
   if(n || q) return (n ? +n[1]*60 : 0) + (q ? +q[1] : 0);
   const d = String(s||"").match(/\d+/); return d ? +d[0] : 30; };
 
-/* Where to find them on the floor, once the meeting is real. Held back on a
-   proposal or an unconfirmed slot: a stand number next to a meeting that may
-   not happen reads like a plan when it is still a hope. */
-function boothBadge(m){
-  if(m.proposed || m.confirmed === false) return "";
-  const b = boothOf(m.company);
-  if(!b) return "";
-  return '<span class="chip booth" title="' +
-    esc(b.note || ("On the exhibition floor as " + b.name)) + '">\u25c9 Booth ' + esc(b.booth) + '</span>';
-}
 function meetingCard(m, inTimeline){
   const open = !!state.openRows["mtg-" + m.id];
   const fmt = {formal:["kind","Formal"], informal:["kind","Informal"], meal:["gold","Meal"]}[m.format] || ["kind","Meeting"];
@@ -5311,7 +5300,6 @@ function meetingCard(m, inTimeline){
     wasHeld(m) ? '<span class="chip green">Held</span>' : "",
     originOf(m) === "hunted" ? '<span class="chip teal">Tracked down</span>' : "",
     sfApproved(m) ? '<span class="chip gold">Approved for SF</span>' : "",
-    boothBadge(m),
     (!m.proposed && debriefLogged(debriefOf(m.id))) ? '<span class="chip teal">Debriefed</span>' : "",
     stage,
     has(m.topic) ? '<span style="color:var(--ink-2)">' + esc(m.topic) + '</span>' : ""
@@ -5342,6 +5330,22 @@ function meetingCard(m, inTimeline){
       '<div class="bsec start"><h5>Where to start</h5><p>' + esc(cbr.start) + '</p>' +
         '<p class="briefmore">Full brief on the Targets tab</p></div>' +
     '</div>');
+  }
+  /* The stand is useful context and a hazard on the collapsed row: sitting
+     next to the meeting's own location it reads as the place to go, and
+     somebody walks to the exhibition floor instead of a conference room. Here
+     it can say what it is. */
+  const stand = boothOf(m.company);
+  if(stand){
+    blocks.push(block("Where else you will find them", '<dl class="kv">' +
+      '<dt>Their stand</dt><dd>' + esc(stand.booth) +
+        (stand.note ? ' &middot; ' + esc(stand.note)
+                    : (stand.alias ? ' &middot; listed as ' + esc(stand.name) : '')) + '</dd>' +
+      '<dt>This meeting</dt><dd>' +
+        (has(m.location) ? esc(m.location) : gap("No location set")) + '</dd>' +
+    '</dl>' +
+    '<p class="dhint" style="margin:6px 0 0">The stand is where they are on the exhibition floor, not where ' +
+      'this meeting is.</p>'));
   }
   if(has(m.background)) blocks.push(block("Background", '<p>' + esc(m.background) + '</p>'));
   else blocks.push('<div class="block">' + gap("Background — not yet captured") + '</div>');

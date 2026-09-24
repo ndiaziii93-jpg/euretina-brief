@@ -613,6 +613,8 @@ label.f .hint{font-size:10.5px; color:var(--ink-3)}
 .lform .btn{padding:11px 16px; font-size:14px}
 .linkbtn{appearance:none; background:none; border:0; padding:0; color:var(--navy-ink); text-decoration:underline;
   text-underline-offset:2px; font:inherit; cursor:pointer}
+.editwarn.dup{background:var(--surface-3); color:var(--ink-2)}
+.editwarn.dup.hard{background:var(--red-fill); color:var(--red); font-weight:600}
 .editwarn{margin:0; padding:10px 20px; background:var(--amber-fill); color:var(--amber);
   border-bottom:1px solid color-mix(in srgb, var(--amber) 30%, transparent); font-size:13px; font-weight:500}
 
@@ -5616,9 +5618,63 @@ function openEditor(id, day, company){
   '</div>';
   document.getElementById("editor").hidden = false;
   const hd = document.querySelector("#editor .sheet header");
-  if(hd) hd.insertAdjacentHTML("afterend", '<p class="editwarn" id="editwarn" hidden></p>');
+  if(hd) hd.insertAdjacentHTML("afterend",
+    '<p class="editwarn" id="editwarn" hidden></p><p class="editwarn dup" id="dupwarn" hidden></p>');
   trackEditing(id || null);
   updateEditorWarn();
+  /* watch the three fields the check depends on, so it answers while she types
+     rather than after she has saved a second copy of something */
+  const f = document.getElementById("mform");
+  if(f){
+    ["company", "day", "time"].forEach(function(n){
+      const el = f.elements[n];
+      if(el){ el.addEventListener("input", dupWarn); el.addEventListener("change", dupWarn); }
+    });
+  }
+  dupWarn();
+}
+/* ---------- the same company, twice ----------
+   Two people adding meetings in the same hour is how a company ends up on the
+   board twice, and the second copy is only obvious days later when the debriefs
+   disagree. This says so while the form is open, and does not block: the same
+   company at 09:00 and again at 14:00 is a real thing, so it is a warning with
+   the existing meeting attached, not a rule. */
+function dupWarn(){
+  const el = document.getElementById("dupwarn");
+  const f = document.getElementById("mform");
+  if(!el || !f) return;
+  const co = f.elements.company ? String(f.elements.company.value || "").trim() : "";
+  const day = f.elements.day ? f.elements.day.value : "";
+  const time = f.elements.time ? f.elements.time.value : "";
+  const mine = f.elements.meetingId ? f.elements.meetingId.value : (EDITING || "");
+  if(!has(co)){ el.hidden = true; return; }
+  const id = slug(co);
+  const hits = allMeetings().filter(function(m){
+    return m.id !== mine && has(m.company) && slug(m.company) === id;
+  });
+  if(!hits.length){ el.hidden = true; return; }
+  const sameSlot = hits.filter(function(m){ return m.day === day && has(time) && m.time === time; });
+  const sameDay  = hits.filter(function(m){ return m.day === day && !(has(time) && m.time === time); });
+  const other    = hits.filter(function(m){ return m.day !== day; });
+  const where = function(m){
+    const d = DAYS.filter(function(x){ return x.key === m.day; })[0];
+    return (d ? d.label : m.day || "no day") + (has(m.time) ? " " + t12(m.time) : " \u00b7 no time");
+  };
+  let msg;
+  if(sameSlot.length){
+    msg = "\u26a0 " + esc(co) + " is already booked for this exact slot \u2014 " +
+      esc(where(sameSlot[0])) + ". Save this and they are on the board twice.";
+  } else if(sameDay.length){
+    msg = "\u26a0 Already meeting " + esc(co) + " on this day at " +
+      sameDay.map(function(m){ return esc(has(m.time) ? t12(m.time) : "no time set"); }).join(", ") +
+      ". Fine if this is a second conversation \u2014 worth a look if it is not.";
+  } else {
+    msg = "Note: " + esc(co) + " is already on the schedule \u2014 " +
+      other.map(function(m){ return esc(where(m)); }).join(", ") + ".";
+  }
+  el.className = "editwarn" + (sameSlot.length ? " dup hard" : " dup");
+  el.innerHTML = msg;
+  el.hidden = false;
 }
 function formError(msg){
   const el = document.getElementById("formerr");

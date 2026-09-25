@@ -2426,11 +2426,14 @@ function openLogPanel(){
   const n   = LOG_WINDOWS.indexOf(state.logN) > -1 ? state.logN : LOG_WINDOWS[0];
   const rows = all.slice(0, n);
 
+  /* Every window stays live even when the log is shorter than all of them. A
+     disabled button fires no click at all, so greying out the wider windows on
+     a young log left the control looking present and doing nothing. The
+     heading below already says when a window holds the whole history. */
   const bar = '<div class="logbar"><span class="dlab">Show</span>' +
     LOG_WINDOWS.map(function(w){
-      return '<button class="dchip' + (w === n ? " on" : "") + '" data-logn="' + w + '"' +
-        (all.length <= (LOG_WINDOWS[LOG_WINDOWS.indexOf(w) - 1] || 0) ? ' disabled' : '') +
-        '>Last ' + w + '</button>';
+      return '<button class="dchip' + (w === n ? " on" : "") + '" data-logn="' + w + '">' +
+        'Last ' + w + '</button>';
     }).join("") + '</div>';
 
   const body = rows.length

@@ -881,6 +881,12 @@ body{overflow-x:clip}
   .sec-head h2{font-size:18px}
   .hero{grid-template-columns:repeat(2,1fr); gap:8px}
   .hero.h2, .hero.h3{grid-template-columns:repeat(2,1fr)}
+  /* Three tiles into two columns leaves the third stranded in the left cell
+     with a hole beside it. Give it the whole row instead: on the first h3 row
+     that reads as the two feeders adding up to the total underneath, and on
+     the second it puts the debriefs count — the one thing people forget — at
+     full width rather than looking like a layout accident. */
+  .hero.h3 > :last-child{grid-column:1 / -1}
   .grouplab{margin:14px 0 6px}
   .htile{padding:12px 13px; border-radius:9px}
   .htile .hv{font-size:27px}
@@ -3494,7 +3500,7 @@ function viewExec(){
     tile("lead", newAccs.length, "New opportunities identified",
       "One per account, surfaced in a meeting here" +
       (newMtgs.length > newAccs.length ? " &middot; across " + newMtgs.length + " meetings" : ""), "new") +
-    tile("", inAccs.length, "Opportunity accounts we reached",
+    tile("", inAccs.length, "Accounts with opportunities going into the week",
       'Marked <b>Open coming in</b> &mdash; and we got in front of them' +
       (inMtgs > inAccs.length ? " across " + inMtgs + " meetings" : ""), "existing") +
   '</div>' +

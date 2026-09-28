@@ -3276,11 +3276,22 @@ function sfParse(text){
   const cSub = col("subject"), cCo = col("company / account"), cAcc = col("account id"),
         cDate = col("date"), cOra = col("ora attendees"), cName = col("name"), cTitle = col("title");
   if(cCo < 0 || cDate < 0) return [];
-  /* the time column is named for the city, or just "time"; the AM/PM that
-     follows it sits under a blank header */
+  /* The time column is named for the city, or just "time"; the AM/PM that
+     follows it sits under a blank header. Salesforce has shipped this column
+     as "Vienna", "Vienna Time" and "Time" on different days, and an exact
+     list missed "Vienna Time" — every row then imported with no time at all
+     and nothing said why. Known spellings first, then any header carrying the
+     word "time" that is not a record-keeping column. */
+  const TIME_NAME = /^(vienna|vienna time|local|local time|time|start|start time|meeting time)$/i;
+  const TIME_SKIP = /\b(created|modified|updated|last|system|zone|duration|end)\b/i;
   let cTime = -1;
   for(let i = 0; i < head.length; i++){
-    if(/^(vienna|time|start|start time|local)$/i.test(head[i])){ cTime = i; break; }
+    if(TIME_NAME.test(head[i])){ cTime = i; break; }
+  }
+  if(cTime < 0){
+    for(let i = 0; i < head.length; i++){
+      if(/\btime\b/i.test(head[i]) && !TIME_SKIP.test(head[i])){ cTime = i; break; }
+    }
   }
   const cHalf = (cTime > -1 && cTime + 1 < head.length && !head[cTime + 1]) ? cTime + 1 : -1;
   /* an optional column saying which 30 September programme this was, so the

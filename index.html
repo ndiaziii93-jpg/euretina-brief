@@ -423,6 +423,16 @@ main{padding:26px 0 80px}
 }
 .tgutter::after{content:""; position:absolute; right:0; top:0; bottom:0; width:1px; background:var(--rail)}
 .tgutter .to{color:var(--ink-3); font-size:11px; display:block}
+/* the line for right now: red, because on this page red is always ours */
+.trow.nowrow .tgutter{color:var(--gold); font-weight:600; padding-top:6px; padding-bottom:6px}
+.trow.nowrow .tgutter .to{color:var(--gold); text-transform:uppercase; letter-spacing:.1em; font-size:9.5px}
+.trow.nowrow .tbody{padding:6px 0 6px 18px; display:flex; align-items:center}
+.trow.nowrow .tbody::before{background:var(--gold); border-color:var(--gold); top:50%; margin-top:-4px}
+.nowline{flex:1; height:2px; background:var(--gold); border-radius:2px; display:flex;
+  align-items:center; justify-content:flex-end}
+.nowline span{background:var(--gold); color:#fff; font-family:"Archivo"; font-weight:600;
+  font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; padding:2px 7px;
+  border-radius:999px; transform:translateY(0)}
 .tbody{padding:8px 0 8px 18px; position:relative; min-width:0}
 .tbody::before{content:""; position:absolute; left:-4px; top:20px; width:9px; height:9px; border-radius:50%; background:var(--surface); border:2px solid var(--rail)}
 .trow.is-open .tbody::before{background:var(--gold); border-color:var(--gold)}
@@ -4885,16 +4895,78 @@ function viewProgramme(key){
     '<span style="color:var(--ink-3)">' + ORA + ' marks a company we are working</span>' +
   '</div>' +
   '<div class="timeline">' +
-    sessions.map(s => ({t:s.t, s:s}))
+    withNow(sessions.map(s => ({t:s.t, s:s}))
       .concat(ms.filter(m => has(m.time)).map(m => ({t:m.time, m:m})))
       .sort((a,b) => mins(a.t) - mins(b.t) || (a.m ? 1 : -1))
-      .map(x => x.s ? forumRow(x.s) : forumMeetingRow(x.m)).join("") +
+      .map(x => ({t: x.t, html: x.s ? forumRow(x.s) : forumMeetingRow(x.m)})), key).join("") +
   '</div>' +
   (ms.some(m => !has(m.time))
     ? '<div style="margin-top:18px"><p class="eyebrow" style="margin-bottom:8px">Unscheduled &mdash; chase these</p><div class="mlist">' +
         ms.filter(m => !has(m.time)).map(m => meetingCard(m)).join("") + '</div></div>'
     : "") +
   '<p style="font-size:12px;color:var(--ink-3);margin-top:18px">' + esc(P.foot) + '</p>';
+}
+
+/* ---------- where we are right now ----------
+   On the day itself the useful question is not what the agenda says but what
+   is happening at this moment and what comes next. Vienna time explicitly:
+   a phone still on another country's clock would otherwise draw the line in
+   the wrong place, which is worse than drawing none. */
+const MONTH_NO = {jan:1, feb:2, mar:3, apr:4, may:5, jun:6,
+                  jul:7, aug:8, sep:9, oct:10, nov:11, dec:12};
+function viennaNow(){
+  try{
+    const f = new Intl.DateTimeFormat("en-GB", {timeZone: "Europe/Vienna",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false});
+    const p = {};
+    f.formatToParts(new Date()).forEach(function(x){ p[x.type] = x.value; });
+    return {y: +p.year, m: +p.month, d: +p.day,
+            mins: ((+p.hour) % 24) * 60 + (+p.minute)};
+  }catch(e){
+    const dt = new Date();
+    return {y: dt.getFullYear(), m: dt.getMonth() + 1, d: dt.getDate(),
+            mins: dt.getHours() * 60 + dt.getMinutes()};
+  }
+}
+/* Compared as numbers, never as words. en-GB spells this month "Sept" and the
+   day list says "Sep", so a string match on the month silently never fired --
+   on the one day of the year it had to. */
+function dayDate(d){
+  const m = String((d && d.date) || "").match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+  if(!m) return null;
+  const mo = MONTH_NO[m[2].slice(0, 3).toLowerCase()];
+  return mo ? {y: +m[3], m: mo, d: +m[1]} : null;
+}
+function isToday(dayKey){
+  const dd = dayDate(DAYS.filter(function(x){ return x.key === dayKey; })[0]);
+  const n = viennaNow();
+  return !!(dd && dd.y === n.y && dd.m === n.m && dd.d === n.d);
+}
+function nowRow(m){
+  return '<div class="trow nowrow" aria-label="Now">' +
+    '<div class="tgutter"><span id="nowclock">' + esc(t12(hhmm(m))) + '</span>' +
+      '<span class="to">now</span></div>' +
+    '<div class="tbody"><div class="nowline"><span>Now</span></div></div>' +
+  '</div>';
+}
+/* The marker only has to move when it crosses a row, so the page is left alone
+   until then rather than redrawn every minute under the reader's thumb. */
+let NOW_NEXT = null;
+function withNow(items, dayKey){
+  if(!isToday(dayKey)) return items.map(function(x){ return x.html; });
+  const now = viennaNow().mins;
+  const out = [];
+  let placed = false, next = null;
+  items.forEach(function(x){
+    const at = mins(x.t);
+    if(!placed && at > now){ out.push(nowRow(now)); placed = true; }
+    if(at > now && next === null) next = at;
+    out.push(x.html);
+  });
+  if(!placed) out.push(nowRow(now));
+  NOW_NEXT = next;                 /* redraw when the next row starts */
+  return out;
 }
 
 function forumRow(s){
@@ -5512,16 +5584,17 @@ function viewDay(key){
   /* Same rail as the Wednesday programmes. On a congress day there is no published programme to
      interleave, so the equivalent signal is our own shape: the gaps between meetings
      (the only time you can actually chase anyone) and any overlap we have booked. */
-  const rows = [];
+  const items = [];
   timed.forEach(function(m, i){
-    rows.push(forumMeetingRow(m));
+    items.push({t: m.time, html: forumMeetingRow(m)});
     const next = timed[i+1];
     if(!next) return;
     const endsAt = mins(m.time) + durMins(m.duration);
     const delta  = mins(next.time) - endsAt;
-    if(delta >= 30) rows.push(gapRow(endsAt, mins(next.time), delta));
-    else if(delta < 0) rows.push(clashRow(m, next, -delta));
+    if(delta >= 30) items.push({t: hhmm(endsAt), html: gapRow(endsAt, mins(next.time), delta)});
+    else if(delta < 0) items.push({t: next.time, html: clashRow(m, next, -delta)});
   });
+  const rows = withNow(items, key);
 
   return head + stats +
     (untimed.length
@@ -6490,6 +6563,21 @@ document.addEventListener("click", function(e){
   }
 });
 document.addEventListener("keydown", e => { if(e.key === "Escape") closeEditor(); });
+
+/* Keep the now line honest without redrawing the page under the reader's
+   thumb: the clock text is updated in place every half minute, and a full
+   redraw waits until the line actually has a different row to sit above --
+   and even then holds off while a sheet is open. */
+setInterval(function(){
+  const el = document.getElementById("nowclock");
+  if(!el) return;
+  const now = viennaNow().mins;
+  el.textContent = t12(hhmm(now));
+  if(NOW_NEXT !== null && now >= NOW_NEXT){
+    const ed = document.getElementById("editor");
+    if(ed && ed.hidden) render();
+  }
+}, 30000);
 /* Escape already closed these; the backdrop should too. A press that starts
    inside the sheet and ends on the backdrop is a drag — selecting text, using
    a slider — not a click out, so the press has to begin on the backdrop for

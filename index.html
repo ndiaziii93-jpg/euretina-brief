@@ -5038,6 +5038,12 @@ function isToday(dayKey){
   const n = viennaNow();
   return !!(dd && dd.y === n.y && dd.m === n.m && dd.d === n.d);
 }
+/* Logging a conversation almost always happens on the day it happened, so the
+   form opens there. Off the congress week it falls back to the first day. */
+function todayKey(){
+  const hit = DAYS.filter(function(d){ return isToday(d.key); })[0];
+  return (hit && hit.key) || (DAYS[2] || DAYS[0]).key;
+}
 function nowRow(m){
   return '<div class="trow nowrow" aria-label="Now">' +
     '<div class="tgutter"><span id="nowclock">' + esc(t12(hhmm(m))) + '</span>' +
@@ -5291,7 +5297,15 @@ function companyCard(c){
         '<button class="tog" data-acc="' + c.id + '|newEngagement|' + esc(c.name) + '" aria-pressed="' + (!!t.newEngagement) + '">New engagement</button>' +
       '</div>' +
       (t.activeOpp ? '<input class="note" style="min-height:0" data-oppnote="' + c.id + '" value="' + esc(t.oppNote||"") + '" placeholder="Which opportunity is open">' : "") +
-      wedRow(c.id, c.name) + '<textarea class="note" data-note="' + c.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>') +
+      wedRow(c.id, c.name) + '<textarea class="note" data-note="' + c.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>' +
+      /* Marking that we cornered them records THAT it happened, never WHEN.
+         This is the route from a tracked-down conversation to a card on the
+         day it actually happened — the exhibitor cards have had it all along
+         and the programme cards did not. */
+      (accountMeetings(c.id).length ? "" :
+        '<div class="acctrm"><button class="btn sec sm" data-exmeet="' + esc(c.id) + '">+ Put it on a day</button>' +
+        '<span class="rosterhint" style="margin:0">Opens the meeting form with ' + esc(c.name) +
+        ' filled in and today already chosen, so the conversation lands on the day you had it.</span></div>')) +
   '</div>';
 
   return '<div class="' + cls + ' open">' + head + body + '</div>';
@@ -5412,9 +5426,9 @@ function offCard(a){
     '<textarea class="note" data-note="' + a.id + '" placeholder="Why they matter to us, who owns it, what we want from them…">' + esc(t.note||"") + '</textarea>' +
     wedRow(a.id, a.name) +
     (a.meetings.length ? "" :
-      '<div class="acctrm"><button class="btn sec sm" data-exmeet="' + esc(a.id) + '">+ Add meeting</button>' +
+      '<div class="acctrm"><button class="btn sec sm" data-exmeet="' + esc(a.id) + '">+ Put it on a day</button>' +
       '<span class="rosterhint" style="margin:0">Opens the meeting form with ' + esc(a.name) +
-      ' filled in, so it lands on the day you met.</span></div>') +
+      ' filled in and today already chosen, so it lands on the day you met.</span></div>') +
     removeAccountRow(a)) +
   '</div></div>';
 }
@@ -6563,7 +6577,7 @@ document.addEventListener("click", e => {
     const k = t.dataset.exmeet;
     const nm = EX_LABEL[k] || (state.targets[k] || {}).name ||
                ((CO_BY_ID[k] || {}).name) || k;
-    openEditor(null, (DAYS[2] || DAYS[0]).key, nm);
+    openEditor(null, todayKey(), nm);
     return;
   }
   if(t.dataset.wed){

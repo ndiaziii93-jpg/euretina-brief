@@ -4743,6 +4743,76 @@ const BRIEF_FIELDS = [
    hint:"The question to open with \u2014 something they cannot answer from a brochure."}
 ];
 
+/* ---------- paste a brief ----------
+   Researching a company happens in a chat; typing it in happens on a phone in
+   a corridor. Four separate copy-pastes is three too many, so the whole thing
+   arrives as one block and is split up here. Headings are matched loosely
+   because nobody retypes them exactly, and only the sections actually present
+   are filled, so a partial paste never wipes what is already written. */
+const BRIEF_LABELS = [
+  {k:"what",  re:/^(what(\s+they\s+do)?|who\s+they\s+are)$/i},
+  {k:"stage", re:/^(where\s+they\s+(stand|are)|stage|status)$/i},
+  {k:"ora",   re:/^(why\s+(it\s+matters(\s+to\s+us)?|they\s+matter(\s+to\s+ora)?)|ora)$/i},
+  {k:"start", re:/^(where\s+to\s+start|start|the\s+opening|opening)$/i},
+  {k:"c",     re:/^confidence$/i}
+];
+function briefLabel(t){
+  const s = String(t || "").trim().replace(/[::.\u2014-]+$/, "").trim();
+  return BRIEF_LABELS.filter(function(L){ return L.re.test(s); })[0] || null;
+}
+function briefConf(v){
+  const t = String(v || "").trim().toLowerCase();
+  if(!t) return "";
+  if(t.indexOf("partly") > -1 || t.indexOf("medium") > -1) return "medium";
+  if(t.indexOf("thin") > -1 || t.indexOf("low") > -1) return "low";
+  if(t.indexOf("no public") > -1 || t.indexOf("none") > -1) return "none";
+  if(t.indexOf("verified") > -1 || t.indexOf("high") > -1) return "high";
+  return "";
+}
+function parseBriefBlock(text){
+  const out = {};
+  let cur = null, buf = [];
+  const flush = function(){
+    if(cur){ const v = buf.join("\n").trim(); if(v) out[cur] = v; }
+    buf = [];
+  };
+  String(text || "").split(/\r?\n/).forEach(function(line){
+    const own = briefLabel(line);                 /* a line that is only a heading */
+    if(own){ flush(); cur = own.k; return; }
+    const m = line.match(/^\s*([A-Za-z][A-Za-z \/]{1,38}?)\s*[::]\s*(.+)$/);
+    if(m){
+      const hit = briefLabel(m[1]);               /* heading with its text alongside */
+      if(hit){ flush(); cur = hit.k; buf = [m[2]]; return; }
+    }
+    buf.push(line);
+  });
+  flush();
+  if(out.c) out.c = briefConf(out.c);
+  return out;
+}
+function fillBriefForm(){
+  const box = document.getElementById("bpaste");
+  const msg = document.getElementById("bpastemsg");
+  if(!box) return;
+  const got = parseBriefBlock(box.value);
+  const keys = BRIEF_FIELDS.map(function(f){ return f.k; }).filter(function(k){ return has(got[k]); });
+  if(!keys.length && !got.c){
+    if(msg) msg.textContent = "Nothing recognised \u2014 check the four headings are on their own lines.";
+    return;
+  }
+  keys.forEach(function(k){
+    const el = document.querySelector('#bform [name="' + k + '"]');
+    if(el) el.value = got[k];
+  });
+  if(got.c){
+    const sel = document.querySelector('#bform select[name="c"]');
+    if(sel) sel.value = got.c;
+  }
+  box.value = "";
+  if(msg) msg.textContent = "Filled " + keys.length + (keys.length === 1 ? " section" : " sections") +
+    (got.c ? " and the confidence" : "") + ". Read it, then Save.";
+}
+
 function openBriefEditor(name){
   const cur = BRIEF_BY_ID[slug(name)] || {};
   const co  = cur.name || name;
@@ -4754,6 +4824,18 @@ function openBriefEditor(name){
         ' \u00b7 everyone sees this the moment you save</p></div>' +
       '<button class="btn sec sm" data-close="1">Close</button></header>' +
     '<form class="form" id="bform">' +
+      '<fieldset><legend>Paste a brief</legend>' +
+        '<div class="frow"><label class="f">' +
+          '<textarea id="bpaste" rows="3" placeholder="Paste the whole block here, then tap Fill the fields."></textarea>' +
+          '<span class="hint">Four headings on their own lines \u2014 what they do, where they stand, ' +
+            'why it matters to us, where to start \u2014 and a confidence line. Only the sections in ' +
+            'the paste are filled, so nothing already written is lost.</span>' +
+        '</label></div>' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+          '<button class="btn sec sm" type="button" data-brieffill="1">Fill the fields</button>' +
+          '<span class="hint" id="bpastemsg" style="margin:0"></span>' +
+        '</div>' +
+      '</fieldset>' +
       '<fieldset><legend>The brief</legend>' +
         BRIEF_FIELDS.map(function(f){
           return '<div class="frow"><label class="f">' + esc(f.label) +
@@ -6260,7 +6342,7 @@ function closeEditor(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-brief],[data-briefsave],[data-logn],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
+  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-brief],[data-briefsave],[data-brieffill],[data-logn],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
   if(!t) return;
 
   if(t.dataset.accountsheet){ openAccountSheet(t.dataset.accountsheet); return; }
@@ -6327,6 +6409,7 @@ document.addEventListener("click", e => {
   if(t.hasAttribute("data-dismiss")){ state.notice = ""; render(); return; }
   if(t.dataset.logn){ state.logN = +t.dataset.logn; openLogPanel(); return; }
   if(t.dataset.brief){ openBriefEditor(t.dataset.brief); return; }
+  if(t.dataset.brieffill){ fillBriefForm(); return; }
   if(t.dataset.briefsave){ saveBriefForm(t.dataset.briefsave); return; }
   if(t.dataset.person){ openPersonEditor(t.dataset.person); return; }
   if(t.dataset.persondel){ state.confirm = {kind:"person", id:t.dataset.persondel}; render(); return; }

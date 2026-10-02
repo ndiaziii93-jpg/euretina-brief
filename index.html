@@ -430,6 +430,10 @@ main{padding:26px 0 80px}
 .trow.nowrow .tbody::before{background:var(--gold); border-color:var(--gold); top:50%; margin-top:-4px}
 .nowline{flex:1; height:2px; background:var(--gold); border-radius:2px; display:flex;
   align-items:center; justify-content:flex-end}
+/* the row the now line sits above, while it is still running */
+.trow.islive .mcard, .trow.islive .sessioncard{
+  border-color:var(--gold-line); box-shadow:inset 3px 0 0 var(--gold), var(--shadow)}
+.trow.islive .tgutter{color:var(--gold); font-weight:600}
 .nowline span{background:var(--gold); color:#fff; font-family:"Archivo"; font-weight:600;
   font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; padding:2px 7px;
   border-radius:999px; transform:translateY(0)}
@@ -4993,7 +4997,9 @@ function viewProgramme(key){
     withNow(sessions.map(s => ({t:s.t, s:s}))
       .concat(ms.filter(m => has(m.time)).map(m => ({t:m.time, m:m})))
       .sort((a,b) => mins(a.t) - mins(b.t) || (a.m ? 1 : -1))
-      .map(x => ({t: x.t, html: x.s ? forumRow(x.s) : forumMeetingRow(x.m)})), key).join("") +
+      .map(x => ({t: x.t,
+                  e: x.s ? x.s.e : hhmm(mins(x.m.time) + durMins(x.m.duration)),
+                  html: x.s ? forumRow(x.s) : forumMeetingRow(x.m)})), key).join("") +
   '</div>' +
   (ms.some(m => !has(m.time))
     ? '<div style="margin-top:18px"><p class="eyebrow" style="margin-bottom:8px">Unscheduled &mdash; chase these</p><div class="mlist">' +
@@ -5060,13 +5066,22 @@ function withNow(items, dayKey){
   const out = [];
   let placed = false, next = null;
   items.forEach(function(x){
-    const at = mins(x.t);
-    if(!placed && at > now){ out.push(nowRow(now)); placed = true; }
-    if(at > now && next === null) next = at;
-    out.push(x.html);
+    const at  = mins(x.t);
+    const end = has(x.e) ? mins(x.e) : at;
+    /* Above the first row that has not finished, never merely the first that
+       has not started. Placed on start time alone, the line dropped below a
+       meeting the moment it began — saying it was over when you were sitting
+       in it. A row still running belongs below the line, not above it. */
+    if(!placed && end > now){ out.push(nowRow(now)); placed = true; }
+    if(end > now && next === null) next = end;
+    /* and the row you are actually in is marked, so there is no reading it
+       as the next one up */
+    out.push(at <= now && now < end
+      ? x.html.replace('<div class="trow', '<div class="trow islive', 1)
+      : x.html);
   });
   if(!placed) out.push(nowRow(now));
-  NOW_NEXT = next;                 /* redraw when the next row starts */
+  NOW_NEXT = next;                 /* redraw when the current row ends */
   return out;
 }
 
@@ -5695,13 +5710,15 @@ function viewDay(key){
      (the only time you can actually chase anyone) and any overlap we have booked. */
   const items = [];
   timed.forEach(function(m, i){
-    items.push({t: m.time, html: forumMeetingRow(m)});
+    const ends = mins(m.time) + durMins(m.duration);
+    items.push({t: m.time, e: hhmm(ends), html: forumMeetingRow(m)});
     const next = timed[i+1];
     if(!next) return;
-    const endsAt = mins(m.time) + durMins(m.duration);
-    const delta  = mins(next.time) - endsAt;
-    if(delta >= 30) items.push({t: hhmm(endsAt), html: gapRow(endsAt, mins(next.time), delta)});
-    else if(delta < 0) items.push({t: next.time, html: clashRow(m, next, -delta)});
+    const delta = mins(next.time) - ends;
+    if(delta >= 30) items.push({t: hhmm(ends), e: next.time,
+                                html: gapRow(ends, mins(next.time), delta)});
+    else if(delta < 0) items.push({t: next.time, e: next.time,
+                                   html: clashRow(m, next, -delta)});
   });
   const rows = withNow(items, key);
 

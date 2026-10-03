@@ -1698,24 +1698,58 @@ function saveAccountFlag(id, name, patch){
      - an account we spoke to on the floor with no card behind it
    Both count as one meeting. Pre-booked + found here + unmarked = the total,
    and held, action items and debriefs are all fractions of that same total. */
+/* ---------- who a meeting reaches ----------
+   A joint dinner is one meeting and several accounts. The card carries a
+   primary company and, optionally, everyone else who was in the room, so the
+   board can say "we got to Kiora" without inventing a second meeting. Counts
+   stay per meeting; coverage is per company. */
+function alsoList(m){
+  const v = m && m.also;
+  if(Array.isArray(v)) return v;
+  return String(v || "").split(/[\n,;]+/);
+}
+function meetingCos(m){
+  const out = [], seen = {};
+  const add = function(n){
+    if(!has(n)) return;
+    const id = slug(n);
+    if(!id || seen[id]) return;
+    seen[id] = 1;
+    out.push({id: id, name: String(n).trim()});
+  };
+  add(m && m.company);
+  alsoList(m).forEach(add);
+  return out;
+}
+function meetingCovers(m, accId){
+  return meetingCos(m).some(function(c){ return c.id === accId; });
+}
+
 function meetingSplit(){
   const ms = Object.keys(state.meetings).map(function(k){ return state.meetings[k]; })
     .filter(function(m){ return has(m.company); });
   const prebooked = {}, hunted = {}, unset = {}, held = {};
   let preCount = 0, huntCount = 0, unsetCount = 0, heldCount = 0;
   ms.forEach(function(m){
-    const id = slug(m.company), o = originOf(m);
-    if(o === "prebooked"){ prebooked[id] = m.company.trim(); preCount++; }
-    else if(o === "hunted"){ hunted[id] = m.company.trim(); huntCount++; }
-    else { unset[id] = m.company.trim(); unsetCount++; }
-    if(wasHeld(m)){ held[id] = m.company.trim(); heldCount++; }
+    const o = originOf(m), didHold = wasHeld(m);
+    /* counted once, however many companies were in the room */
+    if(o === "prebooked") preCount++;
+    else if(o === "hunted") huntCount++;
+    else unsetCount++;
+    if(didHold) heldCount++;
+    meetingCos(m).forEach(function(c){
+      if(o === "prebooked") prebooked[c.id] = c.name;
+      else if(o === "hunted") hunted[c.id] = c.name;
+      else unset[c.id] = c.name;
+      if(didHold) held[c.id] = c.name;
+    });
   });
   Object.keys(prebooked).forEach(function(k){ delete hunted[k]; delete unset[k]; });
   Object.keys(hunted).forEach(function(k){ delete unset[k]; });
 
   /* accounts carrying their own record — a floor conversation with no card */
   const withCard = {};
-  ms.forEach(function(m){ withCard[slug(m.company)] = true; });
+  ms.forEach(function(m){ meetingCos(m).forEach(function(c){ withCard[c.id] = true; }); });
   const offCardIds = [];
   Object.keys(state.targets).forEach(function(k){
     const t = state.targets[k] || {};
@@ -1777,8 +1811,8 @@ function accounts(){
   Object.keys(state.meetings).forEach(k => {
     const m = state.meetings[k];
     if(!has(m.company)) return;
+    meetingCos(m).forEach(function(c){ touch(c.id, c.name).meetings.push(m); });
     const a = touch(slug(m.company), m.company);
-    a.meetings.push(m);
     const o = oppOf(m);
     if(o.on && o.kind === "new")      a.oppMeetings.push(m);
     if(o.on && o.kind === "existing"){ a.activeOpp = true; a.oppFrom = a.oppFrom || o; }
@@ -2887,7 +2921,9 @@ function renderTabs(){
 const EX_LABEL = {};   /* target key -> the name we call them */
 function exhibitorRows(){
   const meetingBy = {};
-  allMeetings().forEach(function(m){ if(has(m.company)) meetingBy[slug(m.company)] = m; });
+  allMeetings().forEach(function(m){
+    if(has(m.company)) meetingCos(m).forEach(function(c){ meetingBy[c.id] = meetingBy[c.id] || m; });
+  });
   return EXHIBITORS.map(function(r){
     const id = slug(r.n);
     /* a brief name that aliases onto this stand counts as the same company */
@@ -3589,10 +3625,11 @@ function viewExec(){
     const seen = {}, out = [];
     ms.forEach(function(m){
       if(!has(m.company)) return;
-      const id = slug(m.company);
-      if(seen[id] || BRIEF_BY_ID[id]) return;
-      seen[id] = 1;
-      out.push(m.company.trim());
+      meetingCos(m).forEach(function(c){
+        if(seen[c.id] || BRIEF_BY_ID[c.id]) return;
+        seen[c.id] = 1;
+        out.push(c.name);
+      });
     });
     return out.sort(function(a, b){ return a.localeCompare(b); });
   })();
@@ -5835,6 +5872,13 @@ function meetingCard(m, inTimeline){
     '<p class="dhint" style="margin:6px 0 0">The stand is where they are on the exhibition floor, not where ' +
       'this meeting is.</p>'));
   }
+  const alsoCos = meetingCos(m).slice(1);
+  if(alsoCos.length){
+    blocks.push(block("Also in the room", '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
+      alsoCos.map(function(c){ return '<span class="chip kind">' + esc(c.name) + '</span>'; }).join("") +
+    '</div><p class="dhint" style="margin:7px 0 0">One meeting, counted once \u2014 and it shows as reached ' +
+      'on each of their company cards.</p>'));
+  }
   if(has(m.background)) blocks.push(block("Background", '<p>' + esc(m.background) + '</p>'));
   else blocks.push('<div class="block">' + gap("Background — not yet captured") + '</div>');
 
@@ -5940,7 +5984,7 @@ function oppOf(m){
 /* the account-level view of the same two toggles */
 function accountMeetings(accId){
   return Object.keys(state.meetings).map(function(k){ return state.meetings[k]; })
-    .filter(function(m){ return has(m.company) && slug(m.company) === accId; })
+    .filter(function(m){ return has(m.company) && meetingCovers(m, accId); })
     .sort(function(a,b){
       const da = DAYS.findIndex(function(d){ return d.key === a.day; });
       const dbi = DAYS.findIndex(function(d){ return d.key === b.day; });
@@ -6349,6 +6393,8 @@ function openEditor(id, day, company){
             '<div class="frow">' + F("owner","Ora owner",m.owner,"text","Who runs the room") +
             F("ours","Ora attending",m.ours,"text","Comma separated") + '</div>') +
         T("theirs","Their attendees",m.theirs,"One per line — name, title, and paste their LinkedIn URL on the same line to turn it into a button") +
+        T("also","Other companies in the room", alsoList(m).filter(has).join("\n"),
+          "One per line. A joint dinner stays one meeting, but every company named here counts as reached and shows on their own card.") +
       '</fieldset>' +
     '</form>' +
     '<footer><p class="formerr" id="formerr" hidden></p>' +
@@ -6689,6 +6735,10 @@ document.addEventListener("click", e => {
     const fd = new FormData(f);
     fd.forEach((v,k) => { m[k] = v; });
     if(team().length){ m.oraIds = fd.getAll("oraIds"); }
+    /* kept as a list, so nothing downstream has to re-split a string */
+    m.also = String(m.also || "").split(/[\n,;]+/)
+      .map(function(x){ return x.trim(); })
+      .filter(function(x){ return x && slug(x) !== slug(m.company || ""); });
     m.confirmed = m.confirmed !== "false";
     m.oppOn = m.oppOn === "true";
     if(m.oppOn) m.oppSurfaced = false;

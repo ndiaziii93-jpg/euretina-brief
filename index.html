@@ -3095,8 +3095,8 @@ function findBar(){
 }
 
 /* ---------- Executive overview ---------- */
-/* ---------- Salesforce calendar import ----------
-   The meetings are pulled out of Salesforce a wave at a time, so this reads
+/* ---------- meeting invite import ----------
+   The invites arrive a wave at a time, so this reads
    the export rather than anyone retyping it. It is deliberately a paste box:
    the file never touches this repo, which is public, and the rows land in the
    same store as every other meeting.
@@ -3278,7 +3278,7 @@ function icsParse(text){
   });
   return out;
 }
-/* Hand the invite back in the shape the Salesforce export produces, so it meets
+/* Hand the invite back in the shape the spreadsheet export produces, so it meets
    the same preview, the same name matching and the same duplicate check. */
 function icsToRows(text){
   return icsParse(text).map(function(ev, i){
@@ -3395,10 +3395,10 @@ function importPanel(){
     ? '<div class="impdrop">' +
         '<input type="file" id="impfile" accept=".csv,.tsv,.txt,.ics,.ical,text/csv,text/calendar,text/tab-separated-values">' +
         '<label class="btn" for="impfile">Choose the export file\u2026</label>' +
-        '<span class="hint" id="impfilename">A Salesforce export, or an Outlook invite saved as .ics.</span>' +
+        '<span class="hint" id="impfilename">A calendar export as .csv, or a single Outlook invite saved as .ics.</span>' +
       '</div>' +
       '<p class="hint impor">or paste it below</p>' +
-      '<label class="f">Paste the Salesforce export' +
+      '<label class="f">Or paste the invite details' +
         '<textarea id="impcsv" style="min-height:190px;font-family:\'IBM Plex Mono\',monospace;font-size:12px" ' +
         'placeholder="Subject,Company / Account,Account ID,Date,Ora Attendees,Sponsor Attendees,Name,Title,Related Campaign&#10;…"></textarea>' +
         '<span class="hint">Headers included. Commas, tabs or semicolons all read. One row per contact is fine — rows are grouped into one meeting per company per slot.</span></label>'
@@ -3444,8 +3444,9 @@ function importPanel(){
 
   document.getElementById("editor").innerHTML =
   '<div class="sheet" role="dialog" aria-modal="true" aria-label="Import meetings">' +
-    '<header><div><h3>Import meetings from Salesforce</h3>' +
-      '<p class="dbfcopy" style="margin:2px 0 0">The export stays on your machine. Only the meetings you tick are saved.</p></div>' +
+    '<header><div><h3>Import meeting invites</h3>' +
+      '<p class="dbfcopy" style="margin:2px 0 0">Company, who is coming, the date and the time \u2014 read straight off the invites. ' +
+        'The file stays on your machine, and only the meetings you tick are saved.</p></div>' +
       '<button class="btn sec sm" data-close="1">Close</button></header>' +
     '<div class="dbfscroll"><div class="form">' + body + '</div></div>' +
     '<footer><p class="formerr" id="formerr" hidden></p><span class="acts">' +
@@ -3479,7 +3480,7 @@ async function runImport(){
       location: r.loc || "",
       theirs: r.people.map(function(p){ return p.title ? p.name + ", " + p.title : p.name; }).join("\n"),
       ours: r.ora,
-      background: r.account ? "Salesforce account " + r.account : ""
+      background: r.account ? "Account ID " + r.account : ""
     };
     await saveMeeting(m, true);
     if(r.wed){
@@ -3688,8 +3689,8 @@ function viewExec(){
       '</div>'
     : "") +
   RW('<div class="sec-head" style="margin-bottom:10px"><div>' +
-    '<p class="hint" style="margin:0">Meetings come out of Salesforce a wave at a time.</p></div>' +
-    '<button class="btn sec sm" data-import="1">Import from Salesforce</button></div>') +
+    '<p class="hint" style="margin:0">New invites arrive a wave at a time. Drop the file in rather than retyping them.</p></div>' +
+    '<button class="btn sec sm" data-import="1">Import meeting invites</button></div>') +
   '<div class="sec-head"><div><h2 style="font-size:17px">Account ledger</h2>' +
     '<p>Every company we are working, with the three pipeline states kept separate. Tick <b>Open coming in</b> for accounts that arrived already carrying an open opportunity; <b>Surfaced here</b> fills itself from the toggle on each meeting card.</p></div>' +
     (unreviewed > 0 ? '<span class="chip ghost">' + unreviewed + ' Forum companies not yet reviewed</span>' : "") +

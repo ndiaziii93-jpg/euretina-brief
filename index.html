@@ -1701,8 +1701,8 @@ function saveAccountFlag(id, name, patch){
 /* ---------- who a meeting reaches ----------
    A joint dinner is one meeting and several accounts. The card carries a
    primary company and, optionally, everyone else who was in the room, so the
-   board can say "we got to Kiora" without inventing a second meeting. Counts
-   stay per meeting; coverage is per company. */
+   board can say each of them was reached without inventing extra meetings.
+   Counts stay per meeting; coverage is per company. */
 function alsoList(m){
   const v = m && m.also;
   if(Array.isArray(v)) return v;

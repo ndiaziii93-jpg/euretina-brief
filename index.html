@@ -2499,10 +2499,20 @@ function openLogPanel(){
   document.getElementById("editor").hidden = false;
 }
 
+/* Putting a floor conversation on a day should carry what was said with it.
+   Only when this is the account's one and only meeting, so a write-up is never
+   attached to the wrong one of several. */
+async function maybeCarryDebrief(fresh, m, id){
+  if(!fresh || !has(m.company) || m.floor) return;
+  if(accountMeetings(slug(m.company)).length !== 1) return;
+  if(!floorDebriefFor(m)) return;
+  await carryDebrief(id);
+}
 async function saveMeeting(m, isNew){
   const id = m.id || ("m" + Date.now().toString(36));
   m.id = id;
-  if(!db){ state.meetings[id] = m; render(); return; }
+  const fresh = !!isNew && !state.meetings[id];
+  if(!db){ state.meetings[id] = m; await maybeCarryDebrief(fresh, m, id); render(); return; }
   if(m.proposed){                                   /* editing something still in the queue */
     try{ await db.doc("proposed/" + id).set(m); state.proposed[id] = m; render(); }
     catch(e){ notice("That change could not be saved. Ask Berto to make it."); }
@@ -2515,7 +2525,10 @@ async function saveMeeting(m, isNew){
     autoFlag(m);
     const day = (DAYS.filter(function(x){ return x.key === m.day; })[0] || {}).label || m.day || "no day";
     const when = day + (has(m.time) ? " " + t12(m.time) : "");
-    if(!was) logChange("Added " + (m.company || "a meeting") + " \u2014 " + when);
+    if(!was){
+      logChange("Added " + (m.company || "a meeting") + " \u2014 " + when);
+      await maybeCarryDebrief(fresh, m, id);
+    }
     else if(was.day !== m.day || was.time !== m.time){
       const od = (DAYS.filter(function(x){ return x.key === was.day; })[0] || {}).label || was.day || "no day";
       logChange("Moved " + (m.company || "a meeting") + " from " +
@@ -5936,6 +5949,30 @@ function accountMeetings(accId){
 /* Same debrief form a meeting card gets, hung on the account. Without it a
    conversation that never got a calendar entry can be written up in the free
    note and still read as "not debriefed" everywhere that counts. */
+/* A conversation written up on the company card and then put on a day used to
+   leave its write-up behind, because debriefs are filed against a card and the
+   new card had a new id. This finds the floor write-up a meeting came from. */
+function floorDebriefFor(m){
+  if(!m || m.floor || !has(m.company)) return null;
+  const id = "acc-" + slug(m.company);
+  const d = debriefOf(id);
+  return debriefLogged(d) ? {id: id, d: d} : null;
+}
+/* Copies, never moves: the company card keeps its copy until somebody decides
+   to clear it, so nothing written on the floor can be lost by a mis-tap. */
+async function carryDebrief(mid){
+  const m = state.meetings[mid] || state.proposed[mid];
+  const src = floorDebriefFor(m);
+  if(!m || !src) return;
+  if(debriefLogged(debriefOf(mid))) return;     /* never write over a real one */
+  const keep = {};
+  Object.keys(src.d).forEach(function(k){
+    if(k !== "at" && k !== "first") keep[k] = src.d[k];
+  });
+  await saveDebrief(mid, keep);
+  logChange((m.company || "A meeting") + " \u2014 debrief carried over from the company card");
+}
+
 function accountDebrief(accId, accName){
   const stub = floorStub(accId, accName);
   return '<div>' +
@@ -6188,9 +6225,26 @@ function debriefComponent(m){
       : '<span class="opphint">Straight after the meeting &mdash; four taps and talk into the notes box.</span>') +
   '</div>';
 
+  /* Cards made before the write-up started travelling with them are still
+     split: the floor debrief sits on the company card and this one is blank.
+     Offer to bring it across rather than make anyone retype it. */
+  const carry = (!logged && !READONLY && !m.floor) ? floorDebriefFor(m) : null;
+  const carryRow = carry
+    ? '<div class="dbfnote" style="margin-top:9px">' +
+        '<p class="dbfcopy" style="margin:0 0 7px">There is a debrief on the ' +
+          esc(m.company) + ' company card, written up before this meeting had a day. ' +
+          'Bring it over and this card carries the same record.</p>' +
+        (has(carry.d.notes) ? '<p class="dbfnotes" style="margin:0 0 8px">' +
+          esc(String(carry.d.notes).slice(0, 180)) +
+          (String(carry.d.notes).length > 180 ? "\u2026" : "") + '</p>' : "") +
+        '<button class="btn sec sm" data-carrydbf="' + m.id + '">Bring it over</button>' +
+      '</div>'
+    : "";
+
   if(!open){
     return '<div class="dbf' + (logged ? " on" : "") + '">' + head +
       (logged && has(d.notes) ? '<p class="dbfnotes">' + esc(d.notes) + '</p>' : "") +
+      carryRow +
     '</div>';
   }
 
@@ -6206,7 +6260,7 @@ function debriefComponent(m){
       }).join("") + '</div>'
     : '<input class="dinput" data-dbfin="' + m.id + '|owner" value="' + esc(d.owner || "") + '" placeholder="Who owns the follow-up">';
 
-  return '<div class="dbf on open">' + head +
+  return '<div class="dbf on open">' + head + carryRow +
     '<div class="dfield"><span class="dlab">How did it go</span>' + chips("outcome", DEBRIEF_OUTCOMES, d.outcome) + '</div>' +
     '<div class="dfield"><span class="dlab">Next step</span>' + chips("next", DEBRIEF_NEXT, d.next) + '</div>' +
     '<div class="dfield"><span class="dlab">Who owns it</span>' + ownerRow + '</div>' +
@@ -6373,7 +6427,7 @@ function closeEditor(){
 
 /* ---------- events ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-brief],[data-briefsave],[data-brieffill],[data-logn],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
+  const t = e.target.closest("[data-tab],[data-row],[data-co],[data-status],[data-new],[data-edit],[data-del],[data-save],[data-close],[data-acc],[data-opp],[data-oppkind],[data-person],[data-persondel],[data-personsave],[data-brief],[data-briefsave],[data-brieffill],[data-carrydbf],[data-logn],[data-yes],[data-cancel],[data-accept],[data-dismiss],[data-newpi],[data-editpi],[data-delpi],[data-pisave],[data-pistatus],[data-newco],[data-cosave],[data-dbf],[data-export],[data-send],[data-debriefs],[data-dbfmet],[data-accountsheet],[data-gapsheet],[data-originsheet],[data-clearopp],[data-goto],[data-gotoacc],[data-gotopi],[data-sf],[data-sfq],[data-sfapprove],[data-sfsave],[data-sfunapprove],[data-sfreport],[data-sfall],[data-sfdl],[data-copy],[data-origin],[data-held],[data-accorigin],[data-accheld],[data-delacc],[data-exstatus],[data-exmeet],[data-import],[data-impread],[data-impgo],[data-impback],[data-wed],[data-impwed]");
   if(!t) return;
 
   if(t.dataset.accountsheet){ openAccountSheet(t.dataset.accountsheet); return; }
@@ -6440,6 +6494,7 @@ document.addEventListener("click", e => {
   if(t.hasAttribute("data-dismiss")){ state.notice = ""; render(); return; }
   if(t.dataset.logn){ state.logN = +t.dataset.logn; openLogPanel(); return; }
   if(t.dataset.brief){ openBriefEditor(t.dataset.brief); return; }
+  if(t.dataset.carrydbf){ carryDebrief(t.dataset.carrydbf); return; }
   if(t.dataset.brieffill){ fillBriefForm(); return; }
   if(t.dataset.briefsave){ saveBriefForm(t.dataset.briefsave); return; }
   if(t.dataset.person){ openPersonEditor(t.dataset.person); return; }

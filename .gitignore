@@ -1,0 +1,38 @@
+# This repository is public. The app's own source lives here; the data it
+# carries — briefs, meetings, debriefs, contacts, passwords — never does.
+# That data belongs in Supabase, behind the sign-in, and nowhere else.
+#
+# These rules are a backstop, not permission: anything holding real meeting
+# or company data stays out of this repo whatever it is called.
+
+# load scripts and database dumps
+*.sql
+*.dump
+*.bak
+
+# exports and working documents
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.xlsm
+*.doc
+*.docx
+*.pdf
+*.ics
+*.eml
+*.msg
+
+# data files (the app ships no .json of its own)
+*.json
+
+# a read-only snapshot carries the entire dataset in one file
+EURETINA-2026-field-brief-*.html
+*snapshot*.html
+
+# credentials
+.env
+.env.*
+*.pem
+*.key
+secrets*

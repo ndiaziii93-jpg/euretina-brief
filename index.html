@@ -583,7 +583,7 @@ main{padding:26px 0 80px}
 .sheet{background:var(--surface); border-radius:12px; width:min(720px,100%); box-shadow:0 20px 60px rgba(0,0,0,.3); overflow:hidden}
 .sheet header{padding:16px 20px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:12px}
 .sheet header h3{font-size:17px; font-weight:600}
-.sheet .form{padding:18px 20px; display:grid; gap:16px; max-height:min(70vh,720px); overflow:auto}
+.sheet .form{padding:18px 20px; display:grid; gap:16px; max-height:min(70vh,720px); overflow:auto; overscroll-behavior:contain}
 .sheet footer{padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:10px; background:var(--surface-2)}
 fieldset{border:0; padding:0; margin:0; display:grid; gap:9px}
 fieldset legend{font-family:"Archivo"; font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); padding:0 0 4px; border-bottom:1px solid var(--line); width:100%; margin-bottom:4px}
@@ -807,7 +807,7 @@ body{overflow-x:clip}
 .sffield input.sendtext{padding:8px 10px}
 
 /* the debriefs, read in a window over the page — nothing to download to see them */
-.dbfscroll{padding:0; overflow:auto; max-height:min(70vh,720px); background:var(--surface)}
+.dbfscroll{padding:0; overflow:auto; overscroll-behavior:contain; max-height:min(70vh,720px); background:var(--surface)}
 .dday{padding:9px 20px; font-family:"Archivo"; font-weight:600; font-size:10.5px; letter-spacing:.13em;
   text-transform:uppercase; color:var(--ink-3); background:var(--surface-2);
   border-bottom:1px solid var(--line); border-top:1px solid var(--line);
@@ -836,7 +836,7 @@ body{overflow-x:clip}
 .dbfnote{padding:11px 20px; border-bottom:1px solid var(--line); background:var(--surface-2)}
 .sheet footer .acts{display:flex; gap:8px; flex-wrap:wrap; margin-left:auto}
 @media (max-width:760px){
-  .dbfscroll{max-height:none; flex:1}
+  .dbfscroll{max-height:none; flex:1; min-height:0}
   .sheet footer .acts{width:100%}
   .sheet footer .acts .btn{flex:1; white-space:nowrap; padding-left:10px; padding-right:10px}
 }
@@ -950,11 +950,24 @@ body{overflow-x:clip}
   .btn.sm{padding:7px 12px}
   .teamgrid{grid-template-columns:1fr}
 
-  /* editor fills the screen rather than floating in a scroll trap */
-  .overlay{padding:0; align-items:stretch}
-  .sheet{width:100%; border-radius:0; display:flex; flex-direction:column; min-height:100dvh}
-  .sheet .form{max-height:none; flex:1; padding:16px 14px}
-  .sheet header,.sheet footer{padding:13px 14px}
+  /* The page behind a sheet stays put — otherwise a swipe that runs off the end
+     of the sheet carries on into the page underneath, and the sheet reads stuck.
+     Phones only: on a desktop the scrollers refuse to chain anyway, and taking
+     the scrollbar away mid-sheet would jog the whole page sideways. */
+  html.sheetopen, html.sheetopen body{overflow:hidden; overscroll-behavior:none}
+
+  /* The editor fills the screen rather than floating in a scroll trap, and
+     exactly one thing inside it scrolls: the body of the sheet. The sheet used
+     to be sized with min-height:100dvh, which on iOS disagrees with the fixed
+     overlay the moment Safari hides or shows its toolbar — the sheet grew
+     taller than the overlay, the overlay turned into a second scroller, and a
+     swipe would move it a few pixels and then stop dead while the list
+     underneath never budged. Sizing off the overlay keeps the two in step, and
+     min-height:0 lets the scrolling child actually shrink to fit. */
+  .overlay{padding:0; align-items:stretch; overflow:hidden}
+  .sheet{width:100%; border-radius:0; display:flex; flex-direction:column; height:100%; min-height:0}
+  .sheet header,.sheet footer{flex:none; padding:13px 14px}
+  .sheet .form{max-height:none; flex:1; min-height:0; padding:16px 14px}
   .logrow,.logbar,.logmore{padding-left:14px; padding-right:14px}
   .logrow{flex-direction:column; align-items:flex-start; gap:3px}
   .frow{grid-template-columns:1fr}
@@ -2530,7 +2543,7 @@ function openLogPanel(){
     '<div class="dbfscroll">' + body + '</div>' +
     '<footer><span class="acts"><button class="btn" data-close="1">Done</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 
 /* Putting a floor conversation on a day should carry what was said with it.
@@ -3492,7 +3505,7 @@ function importPanel(){
         : '<button class="btn" data-impread="1">Read the export</button>') +
     '</span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 async function runImport(){
   const st = sfImportRows();
@@ -3920,7 +3933,7 @@ function openDebriefSheet(){
       '<button class="btn" data-close="1">Done</button>' +
     '</span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 
 /* ---------- end-of-congress handover ----------
@@ -4082,7 +4095,7 @@ function openSfReport(){
       '<button class="btn" data-close="1">Done</button>' +
     '</span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
   if(keepTop){
     const sc = document.querySelector("[data-sfreportopen] .dbfscroll");
     if(sc) sc.scrollTop = keepTop;
@@ -4493,7 +4506,7 @@ function openGapSheet(kind){
     '</div>' +
     '<footer><span class="acts"><button class="btn" data-close="1">Done</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 /* marking something from inside a gap sheet should make the row leave the list —
    but only when that sheet is still the thing on screen */
@@ -4667,7 +4680,7 @@ function openOriginSheet(kind){
     '</div>' +
     '<footer><span class="acts"><button class="btn" data-close="1">Done</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 
 function openAccountSheet(kind){
@@ -4736,7 +4749,7 @@ function openAccountSheet(kind){
     '</div>' +
     '<footer><span class="acts"><button class="btn" data-close="1">Done</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 
 /* ---------- who is on the ground ---------- */
@@ -4915,7 +4928,7 @@ function openBriefEditor(name){
         '<button class="btn sec" data-close="1">Cancel</button>' +
         '<button class="btn" data-briefsave="' + esc(co) + '">Save</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 
 async function saveBriefForm(name){
@@ -4968,7 +4981,7 @@ function openPersonEditor(id){
       '<span style="display:flex;gap:10px;margin-left:auto"><button class="btn sec" data-close="1">Cancel</button>' +
       '<button class="btn" data-personsave="' + id + '">Save</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 
 async function savePerson(id){
@@ -5630,7 +5643,7 @@ function openCompanyEditor(){
       '<span style="display:flex;gap:10px;margin-left:auto"><button class="btn sec" data-close="1">Cancel</button>' +
       '<button class="btn" data-cosave="1">Save</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 function submitCompany(){
   const fd = new FormData(document.getElementById("coform"));
@@ -5699,7 +5712,7 @@ function openPIEditor(id){
       '<span style="display:flex;gap:10px;margin-left:auto"><button class="btn sec" data-close="1">Cancel</button>' +
       '<button class="btn" data-pisave="' + id + '">Save</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 
 function submitPI(id){
@@ -6137,7 +6150,7 @@ function openSfEditor(id){
       '<button class="btn" data-sfsave="' + id + '">' + (on ? "Save changes" : "Approve") + '</button>' +
     '</span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
 }
 
 function oppComponent(m){
@@ -6401,7 +6414,7 @@ function openEditor(id, day, company){
       '<span style="display:flex;gap:10px;margin-left:auto"><button class="btn sec" data-close="1">Cancel</button>' +
       '<button class="btn" data-save="' + (id||"") + '">Save meeting</button></span></footer>' +
   '</div>';
-  document.getElementById("editor").hidden = false;
+  showEditor();
   const hd = document.querySelector("#editor .sheet header");
   if(hd) hd.insertAdjacentHTML("afterend",
     '<p class="editwarn" id="editwarn" hidden></p><p class="editwarn dup" id="dupwarn" hidden></p>');
@@ -6465,8 +6478,15 @@ function formError(msg){
   const el = document.getElementById("formerr");
   if(el){ el.textContent = msg; el.hidden = false; }
 }
+/* Every sheet opens and closes through these two, so the page underneath is
+   held still for all of them and never for longer than one is up. */
+function showEditor(){
+  document.getElementById("editor").hidden = false;
+  document.documentElement.classList.add("sheetopen");
+}
 function closeEditor(){
   const e = document.getElementById("editor"); e.hidden = true; e.innerHTML = "";
+  document.documentElement.classList.remove("sheetopen");
   if(EDITING) trackEditing(null);
   state.showDebriefs = false; state.showSend = false;
   state.origSheet = null;

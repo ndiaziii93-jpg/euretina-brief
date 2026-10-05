@@ -609,6 +609,15 @@ label.f .hint{font-size:10.5px; color:var(--ink-3)}
   outline:none; -webkit-appearance:none; appearance:none}
 #qbox::placeholder{color:var(--ink-3)}
 #qbox::-webkit-search-cancel-button{-webkit-appearance:none}
+/* Sized as a thumb target rather than to the glyph, and pulled back into the
+   box's own padding so the bar keeps its height and the cross still sits on
+   the right edge. One of these two shows at a time, never both. */
+.findclr{flex:none; display:none; appearance:none; border:0; background:none; padding:0;
+  width:30px; height:30px; margin:-6px -5px -6px 0; border-radius:50%;
+  align-items:center; justify-content:center; color:var(--ink-3)}
+.findclr:hover{background:var(--surface-2); color:var(--ink)}
+.findbox.has .findclr{display:flex}
+.findbox.has .findkey{display:none}
 .findkey{flex:none; font-family:"IBM Plex Mono"; font-size:11px; color:var(--ink-3);
   border:1px solid var(--line); border-radius:4px; padding:1px 6px; line-height:1.5}
 .findres{margin-top:7px; border:1px solid var(--line); border-radius:10px;
@@ -633,6 +642,7 @@ label.f .hint{font-size:10.5px; color:var(--ink-3)}
   .fres .fx{flex:none; width:100%}
   .fres .fw{width:100%}
   .findkey{display:none}
+  .findclr{width:38px; height:38px; margin:-9px -8px -9px 0}
 }
 
 /* ---------- sign-in ---------- */
@@ -3128,7 +3138,7 @@ function findGo(it){
 function findBar(){
   const n = allMeetings().length + COMPANIES.length;
   return '<div class="findwrap">' +
-    '<div class="findbox">' +
+    '<div class="findbox' + (has(state.q) ? ' has' : '') + '">' +
       '<svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">' +
         '<circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
         '<path d="M10.5 10.5 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
@@ -3137,6 +3147,17 @@ function findBar(){
         'aria-label="Find an account, meeting or investigator" ' +
         'placeholder="Find any of ' + n + ' \u2014 account, meeting, speaker\u2026" ' +
         'value="' + esc(state.q || "") + '">' +
+      /* Safari's own clear button is switched off in the stylesheet, so this
+         is the only way out of a long search but backspacing it away. It
+         shows only when there is something to clear, and takes the "/" hint's
+         place rather than crowding in beside it — the hint tells you how to
+         reach an empty box, which is no use once you are typing in it. */
+      '<button type="button" class="findclr" data-findclr="1" aria-label="Clear the search">' +
+        '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">' +
+          '<path d="M4 4 12 12M12 4 4 12" fill="none" stroke="currentColor" ' +
+            'stroke-width="1.9" stroke-linecap="round"/>' +
+        '</svg>' +
+      '</button>' +
       '<span class="findkey" aria-hidden="true">/</span>' +
     '</div>' +
     '<div id="qresults">' + findResultsHTML() + '</div>' +
@@ -6804,11 +6825,34 @@ document.addEventListener("change", e => {
   if(e.target.matches("[data-oppnote]")) saveTarget(e.target.dataset.oppnote, {oppNote: e.target.value});
   if(e.target.matches("[data-team]")) saveMeta({team: e.target.value});
 });
+/* The results redraw on their own, but the bar around the box does not — a
+   full render would rebuild the input and take the cursor out from under the
+   thumb mid-word. So the cross is shown and hidden in place. */
+function findClrSync(){
+  const box = document.querySelector(".findbox");
+  if(box) box.classList.toggle("has", has(state.q));
+}
 document.addEventListener("input", function(e){
   if(!e.target || e.target.id !== "qbox") return;
   state.q = e.target.value;
   state.qi = 0;
+  findClrSync();
   findRefresh();
+});
+/* Clearing leaves the cursor in the box: the reason to clear a search is
+   almost always to run a different one. */
+function findClear(){
+  state.q = ""; state.qi = 0; state.qhits = [];
+  const el = document.getElementById("qbox");
+  if(el){ el.value = ""; el.focus(); }
+  findClrSync();
+  findRefresh();
+}
+document.addEventListener("click", function(e){
+  const t = e.target && e.target.closest && e.target.closest("[data-findclr]");
+  if(!t) return;
+  e.preventDefault();
+  findClear();
 });
 document.addEventListener("click", function(e){
   if(e.target && e.target.closest && e.target.closest("#markbtn")){
@@ -6860,9 +6904,7 @@ document.addEventListener("keydown", function(e){
     }
     if(e.key === "Enter"){ e.preventDefault(); findGo(hits[state.qi || 0]); return; }
     if(e.key === "Escape"){
-      state.q = ""; state.qi = 0; state.qhits = [];
-      e.target.value = "";
-      findRefresh();
+      findClear();
       e.target.blur();
       return;
     }

@@ -187,6 +187,12 @@ visible by reading the diff.
 
 ## 7. Starting the next congress
 
+**`SETUP.md` is the runbook. Follow it rather than this summary.**
+
+Do not rebuild this app from a description of it — not from this file, not
+from any summary. Six thousand lines carry fixes that no summary makes
+visible, and a rebuild reintroduces every one of the bugs in §6. Fork it.
+
 1. Fork or copy this repository. Keep it private if the plan allows; if it
    must be public, the ground rule in §1 is not optional.
 2. Point it at a fresh Supabase project. Create `docs` and `members`.
